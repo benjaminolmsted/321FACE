@@ -4,7 +4,7 @@
 
 export const GAME_CONFIG = {
   MAX_STRIKES: 3,
-  TILT_THRESHOLD_DEGREES: 7.5,
+  TILT_THRESHOLD_DEGREES: 20,
 } as const;
 
 export const COMPARISON_STRATEGIES = ['contour', 'embedding'] as const;

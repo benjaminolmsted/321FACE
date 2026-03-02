@@ -14,6 +14,13 @@ export interface CompareContext {
 export interface ComparisonResult {
   strike: boolean;
   reason?: 'similar' | 'tilt';
+  /** Contour: overall + per-contour scores (best match) */
+  contourScores?: { overall: number; perContour: Record<string, number> };
+  /** Embedding: max cosine similarity vs previous faces */
+  embeddingScores?: { maxSimilarity: number; perFace: number[] };
+  timingMs?: number;
+  /** FaceNet extraction timing when strategy performs it */
+  faceNetTimingMs?: { align: number; convertRgb: number; modelRun: number; total: number };
 }
 
 export interface FaceComparisonStrategy {

@@ -16,17 +16,34 @@ export class ContourComparisonStrategy implements FaceComparisonStrategy {
   name = 'contour';
 
   async compare(context: CompareContext): Promise<ComparisonResult> {
+    const t0 = performance.now();
+
     if (checkTilt(context.currentFace)) {
-      return { strike: true, reason: 'tilt' };
+      return { strike: true, reason: 'tilt', timingMs: performance.now() - t0 };
     }
 
+    let bestScores: { overall: number; perContour: Record<string, number> } | undefined;
+
     for (const prev of context.previousFaces) {
-      const { passed } = computeContourSimilarity(context.currentFace, prev.face);
+      const { overall, perContour, passed } = computeContourSimilarity(
+        context.currentFace,
+        prev.face
+      );
+      bestScores = { overall, perContour };
       if (passed) {
-        return { strike: true, reason: 'similar' };
+        return {
+          strike: true,
+          reason: 'similar',
+          contourScores: bestScores,
+          timingMs: performance.now() - t0,
+        };
       }
     }
 
-    return { strike: false };
+    return {
+      strike: false,
+      contourScores: bestScores,
+      timingMs: performance.now() - t0,
+    };
   }
 }

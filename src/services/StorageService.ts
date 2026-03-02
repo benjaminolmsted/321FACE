@@ -8,6 +8,8 @@ export interface StoredFaceData {
   imageUri: string;
   face: Face;
   embedding?: number[];
+  blendshapes?: number[];
+  inputHash?: string;
   timestamp: number;
 }
 

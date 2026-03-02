@@ -1,4 +1,5 @@
-import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import type { ProcessResult } from '../services/FaceComparisonService';
 
 type Props = {
   reason: 'similar' | 'tilt';
@@ -6,6 +7,8 @@ type Props = {
   previousImageUri?: string;
   strikes: number;
   onContinue: () => void;
+  benchmarks?: ProcessResult['benchmarks'];
+  scores?: ProcessResult['scores'];
 };
 
 export function StrikeScreen({
@@ -14,16 +17,73 @@ export function StrikeScreen({
   previousImageUri,
   strikes,
   onContinue,
+  benchmarks,
+  scores,
 }: Props) {
   const isTilt = reason === 'tilt';
 
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
       <Text style={styles.title}>{isTilt ? 'TILT!!!' : 'Strike!'}</Text>
       <Text style={styles.subtitle}>
         {isTilt ? 'Face too tilted' : 'Similar Faces Detected'}
       </Text>
       <Text style={styles.strikes}>Strikes: {strikes} / 3</Text>
+
+      {(benchmarks || scores) && (
+        <View style={styles.debugBox}>
+          <Text style={styles.debugTitle}>Benchmarks & Scores</Text>
+          {benchmarks && (
+            <View style={styles.debugSection}>
+              <Text style={styles.debugLabel}>Timing (ms)</Text>
+              <Text style={styles.debugText}>ML Kit: {benchmarks.mlKitMs?.toFixed(0) ?? '—'}</Text>
+              {benchmarks.faceNetMs && (
+                <>
+                  <Text style={styles.debugText}>
+                    FaceNet align: {benchmarks.faceNetMs.align.toFixed(0)}
+                  </Text>
+                  <Text style={styles.debugText}>
+                    FaceNet model: {benchmarks.faceNetMs.modelRun.toFixed(0)}
+                  </Text>
+                  <Text style={styles.debugText}>
+                    FaceNet total: {benchmarks.faceNetMs.total.toFixed(0)}
+                  </Text>
+                </>
+              )}
+              {benchmarks.contourMs !== undefined && (
+                <Text style={styles.debugText}>Contour compare: {benchmarks.contourMs.toFixed(0)}</Text>
+              )}
+              {benchmarks.embeddingMs !== undefined && (
+                <Text style={styles.debugText}>Embedding compare: {benchmarks.embeddingMs.toFixed(0)}</Text>
+              )}
+            </View>
+          )}
+          {scores && (
+            <View style={styles.debugSection}>
+              <Text style={styles.debugLabel}>Similarity Scores</Text>
+              {scores.contour && (
+                <>
+                  <Text style={styles.debugText}>
+                    Contour overall: {(scores.contour.overall * 100).toFixed(1)}%
+                  </Text>
+                  {Object.entries(scores.contour.perContour).map(([k, v]) => (
+                    <Text key={k} style={styles.debugTextSmall}>
+                      {k}: {(v * 100).toFixed(1)}%
+                    </Text>
+                  ))}
+                </>
+              )}
+              {scores.embedding && (
+                <Text style={styles.debugText}>
+                  Embedding max: {(scores.embedding.maxSimilarity * 100).toFixed(1)}%
+                  {scores.embedding.perFace.length > 1 &&
+                    ` (per face: ${scores.embedding.perFace.map((s) => (s * 100).toFixed(0)).join(', ')}%)`}
+                </Text>
+              )}
+            </View>
+          )}
+        </View>
+      )}
 
       <View style={styles.images}>
         {previousImageUri && (
@@ -43,17 +103,20 @@ export function StrikeScreen({
           {strikes >= 3 ? 'Game Over - Play Again' : 'Continue'}
         </Text>
       </TouchableOpacity>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  scroll: {
     flex: 1,
     backgroundColor: '#fff',
+  },
+  container: {
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
+    paddingBottom: 48,
   },
   title: {
     fontSize: 36,
@@ -98,5 +161,36 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 18,
     fontWeight: '600',
+  },
+  debugBox: {
+    width: '100%',
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+    alignSelf: 'stretch',
+  },
+  debugTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  debugSection: {
+    marginBottom: 8,
+  },
+  debugLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 4,
+  },
+  debugText: {
+    fontSize: 12,
+    color: '#333',
+  },
+  debugTextSmall: {
+    fontSize: 11,
+    color: '#555',
+    marginLeft: 8,
   },
 });
