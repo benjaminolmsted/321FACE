@@ -13,7 +13,7 @@ export interface CompareContext {
 
 export interface ComparisonResult {
   strike: boolean;
-  reason?: 'similar' | 'tilt';
+  reason?: 'similar' | 'tilt' | 'zoom';
   /** Contour: overall + per-contour scores (best match) */
   contourScores?: { overall: number; perContour: Record<string, number> };
   /** Embedding: max cosine similarity vs previous faces */

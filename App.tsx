@@ -1,9 +1,9 @@
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { GameScreen } from './src/screens/GameScreen';
+import { BaselineCaptureScreen } from './src/screens/BaselineCaptureScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -16,6 +16,7 @@ export default function App() {
         }}
       >
         <Stack.Screen name="Home" component={HomeWrapper} />
+        <Stack.Screen name="Baseline" component={BaselineCaptureScreen} />
         <Stack.Screen name="Game" component={GameScreen} />
       </Stack.Navigator>
       <StatusBar style="auto" />
@@ -23,6 +24,11 @@ export default function App() {
   );
 }
 
-function HomeWrapper({ navigation }: { navigation: { navigate: (name: string) => void } }) {
-  return <HomeScreen onPlay={() => navigation.navigate('Game')} />;
+function HomeWrapper({ navigation }: { navigation: { navigate: (name: string, params?: object) => void } }) {
+  return (
+    <HomeScreen
+      onPlay={() => navigation.navigate('Baseline')}
+      onPlayDebug={() => navigation.navigate('Game')}
+    />
+  );
 }

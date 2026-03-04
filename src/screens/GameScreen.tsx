@@ -1,21 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import FaceDetection from '@react-native-ml-kit/face-detection';
-import type { Face } from '@react-native-ml-kit/face-detection';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { extractEmbeddingWithTiming } from '../services/FaceNetService';
-import { alignFaceFromMLKit } from '../utils/faceAlignment';
-import { extractBlendshapes, type BlendshapeResult } from '../services/BlendshapeService';
-import { processCapturedFace, type ProcessResult } from '../services/FaceComparisonService';
+import { extractBlendshapes, blendshapeDistance, getInterOcularDistance, type BlendshapeResult } from '../services/BlendshapeService';
+import type { ProcessResult } from '../services/FaceComparisonService';
 import { saveFace, getFacesForRound, clearStoredFaces } from '../services/StorageService';
-import { GAME_CONFIG, COMPARISON_STRATEGIES } from '../utils/constants';
+import { GAME_CONFIG, BLENDSHAPE_DISTANCE_THRESHOLD, INTER_OCULAR_ZOOM_THRESHOLD } from '../utils/constants';
+import { FaceOvalOverlay } from '../components/FaceOvalOverlay';
 import { DebugScreen, type PreviousFaceDebug } from './DebugScreen';
 import { StrikeScreen } from './StrikeScreen';
+import { GameOverScreen, type StrikeDetail } from './GameOverScreen';
+import { useCountdown3251 } from '../hooks/useCountdown3251';
 
-type GameState = 'playing' | 'processing' | 'debug' | 'strike';
+type GameState = 'playing' | 'processing' | 'debug' | 'strike' | 'gameOver';
 
 interface CaptureEntry {
   timestamp: number;
@@ -23,6 +22,7 @@ interface CaptureEntry {
   inputHash: string;
   embedding: number[];
   blendshapes?: number[];
+  pose?: { pitchDeg: number; rollDeg: number; yawDeg: number } | null;
   scores?: ProcessResult['scores'];
   benchmarks?: ProcessResult['benchmarks'];
 }
@@ -33,30 +33,59 @@ interface CaptureData {
   inputHash: string;
   embedding?: number[];
   blendshapes?: BlendshapeResult;
-  face: Face;
   result: ProcessResult;
   previousFaces: PreviousFaceDebug[];
 }
 
+type RouteParams = { playMode?: boolean };
+
 export function GameScreen() {
   const navigation = useNavigation();
+  const route = useRoute();
+  const playMode = (route.params as RouteParams | undefined)?.playMode ?? false;
+
   const goBack = useCallback(() => navigation.goBack(), [navigation]);
   const [permission, requestPermission] = useCameraPermissions();
 
   const [gameState, setGameState] = useState<GameState>('playing');
-  const [roundIndex, setRoundIndex] = useState(0);
+  const [roundIndex, setRoundIndex] = useState(playMode ? 1 : 0);
   const [strikes, setStrikes] = useState(0);
+  const [strikeHistory, setStrikeHistory] = useState<StrikeDetail[]>([]);
   const [captureData, setCaptureData] = useState<CaptureData | null>(null);
   const [lastBenchmarks, setLastBenchmarks] = useState<ProcessResult['benchmarks']>();
+  const [baselineLandmarks, setBaselineLandmarks] = useState<{ x: number; y: number; z: number }[] | null>(null);
+  const [baselineSourceSize, setBaselineSourceSize] = useState<{ width: number; height: number } | null>(null);
+  const [overlaySize, setOverlaySize] = useState({ width: 0, height: 0 });
 
+  const { phase, label, start } = useCountdown3251();
   const cameraRef = useRef<CameraView>(null);
   const gameStateRef = useRef<GameState>('playing');
-  const roundIndexRef = useRef(0);
+  const roundIndexRef = useRef(playMode ? 1 : 0);
+  const strikesRef = useRef(0);
   const captureLog = useRef<CaptureEntry[]>([]);
+  strikesRef.current = strikes;
 
   useEffect(() => {
-    clearStoredFaces();
-  }, []);
+    if (!playMode) clearStoredFaces();
+  }, [playMode]);
+
+  // Load baseline landmarks and source size when we have previous faces (round > 0)
+  useEffect(() => {
+    if (roundIndex === 0) {
+      setBaselineLandmarks(null);
+      setBaselineSourceSize(null);
+      return;
+    }
+    getFacesForRound(roundIndex).then((faces) => {
+      const first = faces[0];
+      setBaselineLandmarks(first?.faceLandmarks ?? null);
+      setBaselineSourceSize(
+        first?.sourceImageWidth != null && first?.sourceImageHeight != null
+          ? { width: first.sourceImageWidth, height: first.sourceImageHeight }
+          : null
+      );
+    });
+  }, [roundIndex]);
 
   function transition(state: GameState, round?: number) {
     gameStateRef.current = state;
@@ -67,11 +96,12 @@ export function GameScreen() {
     }
   }
 
-  const captureAndProcess = useCallback(async () => {
+  const captureAndProcess = useCallback(async (isPlayMode?: boolean) => {
     if (!cameraRef.current || gameStateRef.current !== 'playing') {
       console.log('[321FACE] Guard:', { cam: !!cameraRef.current, state: gameStateRef.current });
       return;
     }
+    console.log('[321FACE] CAPTURE attempt', { playMode: !!isPlayMode, round: roundIndexRef.current + 1 });
     transition('processing');
 
     try {
@@ -89,85 +119,146 @@ export function GameScreen() {
       );
       await FileSystem.copyAsync({ from: flipped.uri, to: permPath });
 
-      const tMlKit0 = performance.now();
-      const faces = await FaceDetection.detect(permPath, {
-        landmarkMode: 'all',
-        contourMode: 'all',
-        classificationMode: 'all',
-      });
-      const mlKitMs = performance.now() - tMlKit0;
+      const blendshapeResult = await extractBlendshapes(permPath);
 
-      if (!faces || faces.length === 0) {
-        console.log('[321FACE] No faces detected');
+      if (!blendshapeResult) {
+        console.log('[321FACE] CAPTURE no face', { imageUri: permPath });
         transition('playing');
         return;
       }
 
-      const face = faces[0];
       const rd = roundIndexRef.current;
       const previousFaces = await getFacesForRound(rd);
 
-      let embedding: number[] | undefined;
-      let faceNetTiming: { align: number; convertRgb: number; modelRun: number; total: number } | undefined;
-      let alignedImageUri: string | undefined;
-      let inputHash = '';
-      let blendshapeResult: BlendshapeResult | null = null;
+      const perFaceDistances: number[] = [];
+      for (const prev of previousFaces) {
+        if (prev.blendshapes?.length) {
+          perFaceDistances.push(blendshapeDistance(blendshapeResult.scores, prev.blendshapes));
+        }
+      }
+      const minDist = perFaceDistances.length > 0 ? Math.min(...perFaceDistances) : null;
+      const pose = blendshapeResult.facePose;
+      const tiltThreshold = GAME_CONFIG.TILT_THRESHOLD_DEGREES;
+      const tiltStrike = pose && (Math.abs(pose.pitchDeg) > tiltThreshold || Math.abs(pose.rollDeg) > tiltThreshold);
+      const blendshapeStrike = minDist != null && minDist < BLENDSHAPE_DISTANCE_THRESHOLD;
 
-      // Run FaceNet and MediaPipe blendshapes in parallel
-      const embeddingPromise = COMPARISON_STRATEGIES.includes('embedding')
-        ? extractEmbeddingWithTiming(permPath, face)
-        : alignFaceFromMLKit(permPath, face).then((a) => a ? { alignedOnly: true, uri: a.uri } : null);
+      const baseline = previousFaces[0];
+      const baselineIod = baseline?.interOcularDistance ?? 0;
+      const currentIod = getInterOcularDistance(blendshapeResult.faceLandmarks);
+      const zoomStrike = !!(
+        isPlayMode &&
+        baselineIod > 0 &&
+        currentIod > 0 &&
+        Math.abs(currentIod - baselineIod) / baselineIod > INTER_OCULAR_ZOOM_THRESHOLD
+      );
 
-      const blendshapePromise = extractBlendshapes(permPath);
+      const strike = isPlayMode ? (blendshapeStrike || !!tiltStrike || zoomStrike) : false;
 
-      const [embResult, bsResult] = await Promise.all([embeddingPromise, blendshapePromise]);
+      const benchmarks: ProcessResult['benchmarks'] = {
+        mlKitMs: 0,
+        blendshapeMs: blendshapeResult.timingMs,
+      };
 
-      if (embResult && 'embedding' in embResult) {
-        embedding = embResult.embedding;
-        faceNetTiming = embResult.timingMs;
-        alignedImageUri = embResult.alignedImageUri;
-        inputHash = embResult.inputHash;
-      } else if (embResult && 'uri' in embResult) {
-        alignedImageUri = embResult.uri;
+      const scores: ProcessResult['scores'] = {};
+      if (minDist != null) scores.blendshape = { minDistance: minDist, perFace: perFaceDistances };
+      if (pose) scores.pose = { pitchDeg: pose.pitchDeg, rollDeg: pose.rollDeg, yawDeg: pose.yawDeg, tiltStrike: !!tiltStrike };
+      if (baselineIod > 0 && currentIod > 0) {
+        scores.interOcular = { baseline: baselineIod, current: currentIod, zoomStrike: !!zoomStrike };
       }
 
-      blendshapeResult = bsResult;
+      const result: ProcessResult = {
+        strike,
+        reason: strike ? (tiltStrike ? 'tilt' : zoomStrike ? 'zoom' : 'similar') : undefined,
+        benchmarks,
+        scores: Object.keys(scores).length > 0 ? scores : undefined,
+      };
 
-      const benchmarks: ProcessResult['benchmarks'] = { mlKitMs, faceNetMs: faceNetTiming };
-
-      const result = await processCapturedFace(face, permPath, embedding, previousFaces, benchmarks);
-
-      setLastBenchmarks(result.benchmarks);
+      setLastBenchmarks(benchmarks);
 
       const prevDebug: PreviousFaceDebug[] = previousFaces.map((f) => ({
         imageUri: f.imageUri,
         inputHash: f.inputHash ?? '',
         embedding: f.embedding ?? [],
         blendshapes: f.blendshapes ?? [],
+        pose: f.facePose,
         round: f.roundIndex,
       }));
 
-      captureLog.current.push({
+      const logEntry = {
         timestamp: Date.now(),
         roundIndex: rd,
-        inputHash,
-        embedding: embedding ?? [],
-        blendshapes: blendshapeResult?.scores,
+        inputHash: '',
+        embedding: [],
+        blendshapes: blendshapeResult.scores,
+        pose: pose ?? null,
         scores: result.scores,
         benchmarks: result.benchmarks,
+      };
+      captureLog.current.push(logEntry);
+
+      console.log('[321FACE] CAPTURE', {
+        playMode: !!isPlayMode,
+        round: rd + 1,
+        strike: result.strike,
+        reason: result.reason,
+        imageUri: permPath,
+        minDist: minDist ?? undefined,
+        tiltStrike: !!tiltStrike,
+        zoomStrike: !!zoomStrike,
       });
 
-      setCaptureData({
-        rawImageUri: permPath,
-        faceNetInputUri: alignedImageUri ?? permPath,
-        inputHash,
-        embedding,
-        blendshapes: blendshapeResult ?? undefined,
-        face,
-        result,
-        previousFaces: prevDebug,
-      });
-      transition('debug');
+      if (isPlayMode) {
+        transition('playing');
+        if (strike) {
+          const newStrikes = strikesRef.current + 1;
+          const reason = result.reason ?? 'similar';
+          const previousImageUri =
+            reason === 'similar' && perFaceDistances.length > 0
+              ? previousFaces[
+                  perFaceDistances.indexOf(Math.min(...perFaceDistances))
+                ]?.imageUri
+              : reason === 'tilt' || reason === 'zoom'
+                ? previousFaces[0]?.imageUri
+                : undefined;
+
+          setStrikeHistory((prev) => [
+            ...prev,
+            { type: reason, currentImageUri: permPath, previousImageUri },
+          ]);
+          setStrikes(newStrikes);
+
+          if (newStrikes >= GAME_CONFIG.MAX_STRIKES) {
+            clearStoredFaces();
+            setStrikes(0);
+            transition('gameOver');
+          }
+        } else {
+          const savedIod = getInterOcularDistance(blendshapeResult.faceLandmarks);
+          await saveFace({
+            roundIndex: rd,
+            imageUri: permPath,
+            blendshapes: blendshapeResult.scores,
+            faceLandmarks: blendshapeResult.faceLandmarks,
+            facePose: blendshapeResult.facePose,
+            sourceImageWidth: blendshapeResult.sourceImageWidth,
+            sourceImageHeight: blendshapeResult.sourceImageHeight,
+            interOcularDistance: savedIod || undefined,
+            inputHash: '',
+            timestamp: Date.now(),
+          });
+          transition('playing', rd + 1);
+        }
+      } else {
+        setCaptureData({
+          rawImageUri: permPath,
+          faceNetInputUri: permPath,
+          inputHash: '',
+          blendshapes: blendshapeResult,
+          result,
+          previousFaces: prevDebug,
+        });
+        transition('debug');
+      }
     } catch (err) {
       console.error('[321FACE] captureAndProcess error:', err);
       transition('playing');
@@ -177,18 +268,21 @@ export function GameScreen() {
   const handleDebugContinue = useCallback(async () => {
     const data = captureData;
     if (!data) { transition('playing'); return; }
-    setCaptureData(null);
 
     if (data.result.strike) {
       transition('strike');
+      // Keep captureData for StrikeScreen
     } else {
+      setCaptureData(null);
       const rd = roundIndexRef.current;
       await saveFace({
         roundIndex: rd,
         imageUri: data.rawImageUri,
-        face: data.face,
-        embedding: data.embedding,
         blendshapes: data.blendshapes?.scores,
+        faceLandmarks: data.blendshapes?.faceLandmarks,
+        facePose: data.blendshapes?.facePose,
+        sourceImageWidth: data.blendshapes?.sourceImageWidth,
+        sourceImageHeight: data.blendshapes?.sourceImageHeight,
         inputHash: data.inputHash || undefined,
         timestamp: Date.now(),
       });
@@ -196,7 +290,13 @@ export function GameScreen() {
     }
   }, [captureData]);
 
+  const handlePlayAgain = useCallback(() => {
+    clearStoredFaces();
+    (navigation as any).reset({ index: 0, routes: [{ name: 'Home' }] });
+  }, [navigation]);
+
   const handleStrikeContinue = useCallback(() => {
+    setCaptureData(null);
     const newStrikes = strikes + 1;
     setStrikes(newStrikes);
     if (newStrikes >= GAME_CONFIG.MAX_STRIKES) {
@@ -229,13 +329,31 @@ export function GameScreen() {
   }
 
   const showCameraUI = gameState === 'playing' || gameState === 'processing';
+  const showFaceOval = playMode && baselineLandmarks && overlaySize.width > 0 && (phase === 0 || phase === 1);
 
   return (
     <View style={styles.container}>
       <CameraView style={styles.camera} ref={cameraRef} facing="front" />
 
       {showCameraUI && (
-        <View style={styles.overlay} pointerEvents="box-none">
+        <View
+          style={styles.overlay}
+          pointerEvents="box-none"
+          onLayout={(e) => {
+            const { width, height } = e.nativeEvent.layout;
+            setOverlaySize({ width, height });
+          }}
+        >
+          {baselineLandmarks && overlaySize.width > 0 && (showFaceOval || !playMode) && (
+            <FaceOvalOverlay
+              landmarks={baselineLandmarks}
+              width={overlaySize.width}
+              height={overlaySize.height}
+              sourceImageWidth={baselineSourceSize?.width}
+              sourceImageHeight={baselineSourceSize?.height}
+              mirror={playMode}
+            />
+          )}
           <TouchableOpacity style={styles.backBtn} onPress={goBack}>
             <Text style={styles.backBtnText}>← Back</Text>
           </TouchableOpacity>
@@ -245,22 +363,31 @@ export function GameScreen() {
               Strikes: {strikes} / {GAME_CONFIG.MAX_STRIKES}
             </Text>
           </View>
+          {label && (
+            <View style={styles.countdownBox}>
+              <Text style={styles.countdownText}>{label}</Text>
+            </View>
+          )}
           <View style={styles.bottomBar}>
             {gameState === 'processing' ? (
               <ActivityIndicator size="large" color="#fff" />
-            ) : (
+            ) : phase !== null ? null : (
               <TouchableOpacity
                 style={styles.captureButton}
-                onPress={captureAndProcess}
+                onPress={() =>
+                  playMode
+                    ? start({ onFace: () => captureAndProcess(true) })
+                    : captureAndProcess()
+                }
               />
             )}
           </View>
-          {lastBenchmarks && (
+          {!playMode && lastBenchmarks && (
             <View style={styles.benchmarkStrip}>
               <Text style={styles.benchmarkText}>
-                ML Kit: {lastBenchmarks.mlKitMs?.toFixed(0)}ms
-                {lastBenchmarks.faceNetMs && ` | FaceNet: ${lastBenchmarks.faceNetMs.total.toFixed(0)}ms`}
-                {captureData?.blendshapes && ` | Blendshapes: ${captureData.blendshapes.timingMs.toFixed(0)}ms`}
+                {lastBenchmarks.mlKitMs ? `ML Kit: ${lastBenchmarks.mlKitMs.toFixed(0)}ms` : ''}
+                {lastBenchmarks.faceNetMs ? ` | FaceNet: ${lastBenchmarks.faceNetMs.total.toFixed(0)}ms` : ''}
+                {lastBenchmarks.blendshapeMs != null ? `Blendshapes: ${lastBenchmarks.blendshapeMs.toFixed(0)}ms` : ''}
               </Text>
             </View>
           )}
@@ -296,6 +423,12 @@ export function GameScreen() {
           />
         </View>
       )}
+
+      {gameState === 'gameOver' && strikeHistory.length >= 3 && (
+        <View style={styles.fullOverlay}>
+          <GameOverScreen strikes={strikeHistory} onPlayAgain={handlePlayAgain} />
+        </View>
+      )}
     </View>
   );
 }
@@ -326,4 +459,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4,
   },
   benchmarkText: { color: '#fff', fontSize: 11 },
+  countdownBox: {
+    position: 'absolute',
+    top: '40%',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  countdownText: { color: '#fff', fontSize: 64, fontWeight: 'bold' },
 });

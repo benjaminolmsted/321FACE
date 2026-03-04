@@ -7,8 +7,13 @@ export const GAME_CONFIG = {
   TILT_THRESHOLD_DEGREES: 20,
 } as const;
 
-export const COMPARISON_STRATEGIES = ['contour', 'embedding'] as const;
-export type ComparisonStrategyType = (typeof COMPARISON_STRATEGIES)[number];
+export const COMPARISON_STRATEGIES: readonly string[] = [];
+export type ComparisonStrategyType = 'contour' | 'embedding';
+
+export const BLENDSHAPE_DISTANCE_THRESHOLD = 0.2;
+
+/** Strike if inter-ocular distance differs from baseline by more than this fraction (e.g. 0.10 = 10%) */
+export const INTER_OCULAR_ZOOM_THRESHOLD = 0.1;
 
 export const FACE_NET_SIMILARITY_THRESHOLD = 0.65;
 

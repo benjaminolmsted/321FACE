@@ -2,7 +2,7 @@ import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'rea
 import type { ProcessResult } from '../services/FaceComparisonService';
 
 type Props = {
-  reason: 'similar' | 'tilt';
+  reason: 'similar' | 'tilt' | 'zoom';
   currentImageUri: string;
   previousImageUri?: string;
   strikes: number;
@@ -21,13 +21,15 @@ export function StrikeScreen({
   scores,
 }: Props) {
   const isTilt = reason === 'tilt';
+  const isZoom = reason === 'zoom';
+
+  const subtitle =
+    isTilt ? 'Face too tilted' : isZoom ? 'Face too close or far' : 'Similar Faces Detected';
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
-      <Text style={styles.title}>{isTilt ? 'TILT!!!' : 'Strike!'}</Text>
-      <Text style={styles.subtitle}>
-        {isTilt ? 'Face too tilted' : 'Similar Faces Detected'}
-      </Text>
+      <Text style={styles.title}>{isTilt ? 'TILT!!!' : isZoom ? 'ZOOM!!!' : 'Strike!'}</Text>
+      <Text style={styles.subtitle}>{subtitle}</Text>
       <Text style={styles.strikes}>Strikes: {strikes} / 3</Text>
 
       {(benchmarks || scores) && (

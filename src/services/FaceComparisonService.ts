@@ -10,7 +10,7 @@ const strategies = {
   embedding: new EmbeddingComparisonStrategy(),
 };
 
-export type StrikeReason = 'similar' | 'tilt';
+export type StrikeReason = 'similar' | 'tilt' | 'zoom';
 
 export interface ProcessResult {
   strike: boolean;
@@ -21,11 +21,15 @@ export interface ProcessResult {
     faceNetMs?: { align: number; convertRgb: number; modelRun: number; total: number };
     contourMs?: number;
     embeddingMs?: number;
+    blendshapeMs?: number;
   };
   /** Similarity scores used for strike decision */
   scores?: {
     contour?: { overall: number; perContour: Record<string, number> };
     embedding?: { maxSimilarity: number; perFace: number[] };
+    blendshape?: { minDistance: number; perFace: number[] };
+    pose?: { pitchDeg: number; rollDeg: number; yawDeg: number; tiltStrike: boolean };
+    interOcular?: { baseline: number; current: number; zoomStrike: boolean };
   };
 }
 

@@ -1,13 +1,13 @@
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { ProcessResult } from '../services/FaceComparisonService';
-import { hashPreview } from '../utils/hashUtils';
-import { blendshapeDistance, BLENDSHAPE_NAMES, type BlendshapeResult } from '../services/BlendshapeService';
+import { blendshapeDistance, type BlendshapeResult } from '../services/BlendshapeService';
 
 export type PreviousFaceDebug = {
   imageUri: string;
   inputHash: string;
   embedding: number[];
   blendshapes: number[];
+  pose?: { pitchDeg: number; rollDeg: number; yawDeg: number };
   round: number;
 };
 
@@ -43,17 +43,13 @@ function fmtDist(val: number): string {
   return val.toFixed(3);
 }
 
-function fmtHash(hash: string): string {
-  if (!hash) return '—';
-  return hashPreview(hash, 10);
-}
-
 // Shared grid component for both cosine similarity and blendshape distance
-function DataGrid({ vectors, labels, title, mode }: {
+function DataGrid({ vectors, labels, title, mode, imageUris }: {
   vectors: number[][];
   labels: string[];
   title: string;
   mode: 'cosine' | 'euclidean';
+  imageUris?: string[];
 }) {
   const n = vectors.length;
   if (n < 2) return null;
@@ -81,9 +77,14 @@ function DataGrid({ vectors, labels, title, mode }: {
               </View>
               {vectors.map((colVec, j) => {
                 if (i === j) {
+                  const uri = imageUris?.[i];
                   return (
-                    <View key={`c-${i}-${j}`} style={[styles.gridCell, { width: CELL, backgroundColor: '#333' }]}>
-                      <Text style={styles.gridValue}>—</Text>
+                    <View key={`c-${i}-${j}`} style={[styles.gridCell, { width: CELL, height: CELL }]}>
+                      {uri ? (
+                        <Image source={{ uri }} style={{ width: CELL - 4, height: CELL - 4, borderRadius: 4 }} resizeMode="cover" />
+                      ) : (
+                        <Text style={styles.gridValue}>—</Text>
+                      )}
                     </View>
                   );
                 }
@@ -116,28 +117,8 @@ function DataGrid({ vectors, labels, title, mode }: {
   );
 }
 
-// Top blendshape values for quick readability
-function BlendshapeSummary({ result }: { result: BlendshapeResult }) {
-  const entries = BLENDSHAPE_NAMES
-    .map((name, i) => ({ name, score: result.scores[i] }))
-    .filter((e) => e.name !== '_neutral')
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 8);
-
-  return (
-    <View style={styles.bsSummary}>
-      {entries.map((e) => (
-        <View key={e.name} style={styles.bsRow}>
-          <Text style={styles.bsName}>{e.name}</Text>
-          <View style={styles.bsBarOuter}>
-            <View style={[styles.bsBarInner, { width: `${Math.min(100, e.score * 100)}%` }]} />
-          </View>
-          <Text style={styles.bsVal}>{(e.score * 100).toFixed(0)}%</Text>
-        </View>
-      ))}
-      <Text style={styles.monoSmall}>{result.timingMs.toFixed(0)}ms</Text>
-    </View>
-  );
+function fmtPose(p: { pitchDeg: number; rollDeg: number; yawDeg: number }): string {
+  return `p ${p.pitchDeg.toFixed(1)}° • r ${p.rollDeg.toFixed(1)}° • y ${p.yawDeg.toFixed(1)}°`;
 }
 
 export function DebugScreen({
@@ -156,82 +137,66 @@ export function DebugScreen({
 
   const currentBsScores = currentBlendshapes?.scores ?? [];
   const allBlendshapes = [...previousFaces.map((f) => f.blendshapes), currentBsScores];
+  const allImageUris = [...previousFaces.map((f) => f.imageUri), rawImageUri];
   const hasBlendshapes = currentBsScores.length > 0;
-
-  const simToCurrent = previousFaces.map((f) =>
-    currentEmbedding.length > 0 && f.embedding.length > 0
-      ? cosine(f.embedding, currentEmbedding)
-      : null
-  );
-
-  const distToCurrent = previousFaces.map((f) =>
-    hasBlendshapes && f.blendshapes.length > 0
-      ? blendshapeDistance(f.blendshapes, currentBsScores)
-      : null
-  );
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
       <Text style={styles.title}>Debug</Text>
 
+      <View style={styles.buttonRow}>
+        {onDumpLog && (
+          <TouchableOpacity style={styles.dumpButton} onPress={onDumpLog} activeOpacity={0.8}>
+            <Text style={styles.dumpButtonText}>Dump Log</Text>
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity style={styles.button} onPress={onContinue} activeOpacity={0.8}>
+          <Text style={styles.buttonText}>Continue</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* ── Current capture ── */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Current capture</Text>
-        <View style={styles.imagesRow}>
-          <View style={styles.imageBox}>
-            <Text style={styles.imageLabel}>Raw</Text>
-            <Image source={{ uri: rawImageUri }} style={styles.thumbLarge} resizeMode="cover" />
-          </View>
-          <View style={styles.imageBox}>
-            <Text style={styles.imageLabel}>FaceNet 160x160</Text>
-            <Image source={{ uri: faceNetInputUri }} style={styles.thumbLarge} resizeMode="cover" />
-          </View>
+        <View style={styles.imageBox}>
+          <Image source={{ uri: rawImageUri }} style={styles.thumbLarge} resizeMode="cover" />
         </View>
-        <Text style={styles.mono}>input hash: {fmtHash(inputHash)}</Text>
       </View>
 
-      {/* ── Blendshape summary ── */}
-      {currentBlendshapes && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Blendshapes (top 8)</Text>
-          <BlendshapeSummary result={currentBlendshapes} />
-        </View>
-      )}
-
-      {/* ── Previous faces with similarity + distance to current ── */}
-      {previousFaces.length > 0 && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Previous faces ({previousFaces.length})</Text>
-          {previousFaces.map((f, i) => (
-            <View key={`${f.round}-${i}`} style={styles.prevCard}>
-              <Image source={{ uri: f.imageUri }} style={styles.thumbSmall} resizeMode="cover" />
-              <View style={styles.prevMeta}>
-                <Text style={styles.prevRound}>Round {f.round + 1}</Text>
-                <Text style={styles.monoSmall}>hash: {fmtHash(f.inputHash)}</Text>
-              </View>
-              <View style={styles.badgeColumn}>
-                {simToCurrent[i] != null && (
-                  <View style={styles.simBadge}>
-                    <Text style={styles.simBadgeText}>{fmtSim(simToCurrent[i]!)}%</Text>
-                  </View>
-                )}
-                {distToCurrent[i] != null && (
-                  <View style={styles.distBadge}>
-                    <Text style={styles.distBadgeText}>d={fmtDist(distToCurrent[i]!)}</Text>
-                  </View>
-                )}
-              </View>
+      {/* ── Tilt: baseline + recent captures ── */}
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Tilt (pitch • roll • yaw)</Text>
+        {previousFaces[0]?.pose && (
+          <View style={styles.tiltRow}>
+            <Text style={styles.tiltLabel}>Baseline</Text>
+            <Text style={styles.mono}>{fmtPose(previousFaces[0].pose)}</Text>
+          </View>
+        )}
+        {previousFaces.slice(1).map((f, i) =>
+          f.pose ? (
+            <View key={`pose-${f.round}-${i}`} style={styles.tiltRow}>
+              <Text style={styles.tiltLabel}>R{f.round + 1}</Text>
+              <Text style={styles.mono}>{fmtPose(f.pose)}</Text>
             </View>
-          ))}
-        </View>
-      )}
-
-      {/* ── Embedding cosine similarity grid ── */}
-      <DataGrid vectors={allEmbeddings} labels={allLabels} title="Embedding cosine similarity" mode="cosine" />
+          ) : null
+        )}
+        {scores?.pose && (
+          <View style={[styles.tiltRow, scores.pose.tiltStrike && styles.poseRowTilt]}>
+            <Text style={styles.tiltLabel}>Now</Text>
+            <Text style={styles.mono}>{fmtPose(scores.pose)}</Text>
+            {scores.pose.tiltStrike && (
+              <Text style={styles.tiltWarning}>⚠ exceeds threshold</Text>
+            )}
+          </View>
+        )}
+        {!previousFaces[0]?.pose && !scores?.pose && (
+          <Text style={styles.monoSmall}>No pose data yet</Text>
+        )}
+      </View>
 
       {/* ── Blendshape distance grid ── */}
       {hasBlendshapes && (
-        <DataGrid vectors={allBlendshapes} labels={allLabels} title="Blendshape distance (L2)" mode="euclidean" />
+        <DataGrid vectors={allBlendshapes} labels={allLabels} title="Blendshape distance (L2)" mode="euclidean" imageUris={allImageUris} />
       )}
 
       <View style={styles.buttonRow}>
@@ -244,6 +209,7 @@ export function DebugScreen({
           <Text style={styles.buttonText}>Continue</Text>
         </TouchableOpacity>
       </View>
+
     </ScrollView>
   );
 }
@@ -258,30 +224,19 @@ const styles = StyleSheet.create({
   imageBox: { alignItems: 'center' },
   imageLabel: { fontSize: 11, color: '#888', marginBottom: 4 },
   thumbLarge: { width: 120, height: 120, borderRadius: 8, borderWidth: 1, borderColor: '#333' },
-  thumbSmall: { width: 56, height: 56, borderRadius: 6, marginRight: 10 },
   mono: { fontSize: 11, color: '#ccc', fontFamily: 'monospace', marginBottom: 4 },
   monoSmall: { fontSize: 10, color: '#999', fontFamily: 'monospace', marginBottom: 2 },
-  prevCard: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: '#2a2a2a', borderRadius: 8, padding: 10, marginBottom: 6,
+  poseRowTilt: { borderWidth: 1, borderColor: '#b86' },
+  tiltRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2a2a2a',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 6,
   },
-  prevMeta: { flex: 1 },
-  prevRound: { fontSize: 12, fontWeight: '600', color: '#aaa', marginBottom: 4 },
-  badgeColumn: { alignItems: 'flex-end', gap: 4, marginLeft: 8 },
-  simBadge: {
-    backgroundColor: '#3a3a5a', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3,
-  },
-  simBadgeText: { color: '#8af', fontSize: 12, fontWeight: '700', fontFamily: 'monospace' },
-  distBadge: {
-    backgroundColor: '#3a4a3a', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3,
-  },
-  distBadgeText: { color: '#8fa', fontSize: 12, fontWeight: '700', fontFamily: 'monospace' },
-  bsSummary: { backgroundColor: '#2a2a2a', borderRadius: 8, padding: 10 },
-  bsRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-  bsName: { color: '#aaa', fontSize: 10, fontFamily: 'monospace', width: 120 },
-  bsBarOuter: { flex: 1, height: 8, backgroundColor: '#333', borderRadius: 4, marginHorizontal: 6 },
-  bsBarInner: { height: 8, backgroundColor: '#6c8', borderRadius: 4 },
-  bsVal: { color: '#ccc', fontSize: 10, fontFamily: 'monospace', width: 32, textAlign: 'right' },
+  tiltLabel: { color: '#8af', fontSize: 12, fontWeight: '600', width: 72 },
+  tiltWarning: { color: '#fb8', fontSize: 11, marginLeft: 8, fontWeight: '600' },
   gridCell: {
     height: 32, alignItems: 'center', justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth, borderColor: '#444',

@@ -6,9 +6,16 @@ const STORAGE_KEY = '@321face_faces';
 export interface StoredFaceData {
   roundIndex: number;
   imageUri: string;
-  face: Face;
+  face?: Face;
   embedding?: number[];
   blendshapes?: number[];
+  faceLandmarks?: { x: number; y: number; z: number }[];
+  facePose?: { pitchDeg: number; rollDeg: number; yawDeg: number };
+  /** Source image dimensions; landmarks are normalized 0-1 relative to these */
+  sourceImageWidth?: number;
+  sourceImageHeight?: number;
+  /** Inter-ocular distance (normalized) for zoom strike check */
+  interOcularDistance?: number;
   inputHash?: string;
   timestamp: number;
 }
