@@ -1,19 +1,26 @@
 import { useCallback, useState } from 'react';
 import { Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import * as MediaLibrary from 'expo-media-library';
+import { DataGrid } from './DebugScreen';
 
 export type StrikeDetail = {
   type: 'similar' | 'tilt' | 'zoom';
   currentImageUri: string;
   previousImageUri?: string;
+  currentBlendshapes?: number[];
 };
+
+type GridFace = { imageUri: string; blendshapes: number[]; label: string };
 
 type Props = {
   strikes: StrikeDetail[];
+  totalFaces: number;
   onPlayAgain: () => void;
+  /** Grid data: baseline + passed faces, and strike faces. If provided, shows blendshape distance grid. */
+  gridData?: { baselineAndPassed: GridFace[]; strikeFaces: GridFace[] };
 };
 
-export function GameOverScreen({ strikes, onPlayAgain }: Props) {
+export function GameOverScreen({ strikes, totalFaces, onPlayAgain, gridData }: Props) {
   const [exporting, setExporting] = useState(false);
 
   const handleExportImages = useCallback(async () => {
@@ -52,7 +59,23 @@ export function GameOverScreen({ strikes, onPlayAgain }: Props) {
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
       <Text style={styles.title}>Game Over</Text>
-      <Text style={styles.subtitle}>3 Strikes</Text>
+      <Text style={styles.subtitle}>{totalFaces} unique faces in this run</Text>
+
+      {gridData && (() => {
+        const allFaces = [...gridData.baselineAndPassed, ...gridData.strikeFaces];
+        const vectors = allFaces.map((f) => f.blendshapes);
+        const labels = allFaces.map((f) => f.label);
+        const imageUris = allFaces.map((f) => f.imageUri);
+        return vectors.length >= 2 ? (
+          <DataGrid
+            vectors={vectors}
+            labels={labels}
+            title="Blendshape distance (L2)"
+            mode="euclidean"
+            imageUris={imageUris}
+          />
+        ) : null;
+      })()}
 
       <View style={styles.strikesList}>
         {strikes.map((strike, i) => (
@@ -69,9 +92,7 @@ export function GameOverScreen({ strikes, onPlayAgain }: Props) {
                   <Image source={{ uri: strike.previousImageUri }} style={styles.faceImage} resizeMode="cover" />
                 </View>
                 <View style={styles.imageSlot}>
-                  <Text style={styles.imageLabel}>
-                    {strike.type === 'similar' ? 'Current' : 'Striking'}
-                  </Text>
+                  <Text style={styles.imageLabel}>Striking</Text>
                   <Image source={{ uri: strike.currentImageUri }} style={styles.faceImage} resizeMode="cover" />
                 </View>
               </View>

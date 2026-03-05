@@ -1,7 +1,9 @@
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
+export type PlayMode = 'subtle' | 'balanced' | 'extreme';
+
 type Props = {
-  onPlay: () => void;
+  onPlay: (mode: PlayMode) => void;
   onPlayDebug: () => void;
 };
 
@@ -10,8 +12,14 @@ export function HomeScreen({ onPlay, onPlayDebug }: Props) {
     <View style={styles.container}>
       <Text style={styles.title}>321FACE</Text>
       <Text style={styles.subtitle}>Make a different face each round</Text>
-      <TouchableOpacity style={styles.button} onPress={onPlay} activeOpacity={0.8}>
-        <Text style={styles.buttonText}>Play</Text>
+      <TouchableOpacity style={styles.button} onPress={() => onPlay('subtle')} activeOpacity={0.8}>
+        <Text style={styles.buttonText}>Play (subtle)</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.button} onPress={() => onPlay('balanced')} activeOpacity={0.8}>
+        <Text style={styles.buttonText}>Play (balanced)</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.button} onPress={() => onPlay('extreme')} activeOpacity={0.8}>
+        <Text style={styles.buttonText}>Play (extreme)</Text>
       </TouchableOpacity>
       <TouchableOpacity style={[styles.button, styles.buttonSecondary]} onPress={onPlayDebug} activeOpacity={0.8}>
         <Text style={styles.buttonTextSecondary}>Play (debug)</Text>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -37,12 +37,14 @@ interface CaptureData {
   previousFaces: PreviousFaceDebug[];
 }
 
-type RouteParams = { playMode?: boolean };
+type RouteParams = { playMode?: boolean; blendshapeThreshold?: number };
 
 export function GameScreen() {
   const navigation = useNavigation();
   const route = useRoute();
-  const playMode = (route.params as RouteParams | undefined)?.playMode ?? false;
+  const params = (route.params as RouteParams | undefined) ?? {};
+  const playMode = params.playMode ?? false;
+  const blendshapeThreshold = params.blendshapeThreshold ?? BLENDSHAPE_DISTANCE_THRESHOLD;
 
   const goBack = useCallback(() => navigation.goBack(), [navigation]);
   const [permission, requestPermission] = useCameraPermissions();
@@ -52,10 +54,20 @@ export function GameScreen() {
   const [strikes, setStrikes] = useState(0);
   const [strikeHistory, setStrikeHistory] = useState<StrikeDetail[]>([]);
   const [captureData, setCaptureData] = useState<CaptureData | null>(null);
+  const [resultFlash, setResultFlash] = useState<{
+    imageUri: string;
+    label: 'TILT' | 'ZOOM' | 'STRIKE' | null;
+    resultsReady: boolean;
+    pendingGameOver?: boolean;
+  } | null>(null);
   const [lastBenchmarks, setLastBenchmarks] = useState<ProcessResult['benchmarks']>();
   const [baselineLandmarks, setBaselineLandmarks] = useState<{ x: number; y: number; z: number }[] | null>(null);
   const [baselineSourceSize, setBaselineSourceSize] = useState<{ width: number; height: number } | null>(null);
   const [overlaySize, setOverlaySize] = useState({ width: 0, height: 0 });
+  const [gameOverGridData, setGameOverGridData] = useState<{
+    baselineAndPassed: { imageUri: string; blendshapes: number[]; label: string }[];
+    strikeFaces: { imageUri: string; blendshapes: number[]; label: string }[];
+  } | null>(null);
 
   const { phase, label, start } = useCountdown3251();
   const cameraRef = useRef<CameraView>(null);
@@ -105,8 +117,14 @@ export function GameScreen() {
     transition('processing');
 
     try {
-      const photo = await cameraRef.current.takePictureAsync({ quality: 0.9, base64: false });
+      const photo = await cameraRef.current.takePictureAsync({ quality: 1, base64: false });
       if (!photo?.uri) { transition('playing'); return; }
+
+      // Show captured image immediately (before slow flip/copy); processing continues in background
+      if (isPlayMode) {
+        transition('playing');
+        setResultFlash({ imageUri: photo.uri, label: null, resultsReady: false });
+      }
 
       const docDir = FileSystem.documentDirectory;
       if (!docDir) { transition('playing'); return; }
@@ -123,6 +141,7 @@ export function GameScreen() {
 
       if (!blendshapeResult) {
         console.log('[321FACE] CAPTURE no face', { imageUri: permPath });
+        if (isPlayMode) setResultFlash(null);
         transition('playing');
         return;
       }
@@ -139,8 +158,12 @@ export function GameScreen() {
       const minDist = perFaceDistances.length > 0 ? Math.min(...perFaceDistances) : null;
       const pose = blendshapeResult.facePose;
       const tiltThreshold = GAME_CONFIG.TILT_THRESHOLD_DEGREES;
-      const tiltStrike = pose && (Math.abs(pose.pitchDeg) > tiltThreshold || Math.abs(pose.rollDeg) > tiltThreshold);
-      const blendshapeStrike = minDist != null && minDist < BLENDSHAPE_DISTANCE_THRESHOLD;
+      const tiltStrike = pose && (
+        Math.abs(pose.pitchDeg) > tiltThreshold ||
+        Math.abs(pose.rollDeg) > tiltThreshold ||
+        Math.abs(pose.yawDeg) > tiltThreshold
+      );
+      const blendshapeStrike = minDist != null && minDist < blendshapeThreshold;
 
       const baseline = previousFaces[0];
       const baselineIod = baseline?.interOcularDistance ?? 0;
@@ -208,7 +231,7 @@ export function GameScreen() {
       });
 
       if (isPlayMode) {
-        transition('playing');
+        const flashLabel = strike ? (result.reason === 'tilt' ? 'TILT' : result.reason === 'zoom' ? 'ZOOM' : 'STRIKE') : null;
         if (strike) {
           const newStrikes = strikesRef.current + 1;
           const reason = result.reason ?? 'similar';
@@ -221,16 +244,40 @@ export function GameScreen() {
                 ? previousFaces[0]?.imageUri
                 : undefined;
 
-          setStrikeHistory((prev) => [
-            ...prev,
-            { type: reason, currentImageUri: permPath, previousImageUri },
-          ]);
+          const newEntry: StrikeDetail = {
+            type: reason,
+            currentImageUri: permPath,
+            previousImageUri,
+            currentBlendshapes: blendshapeResult.scores,
+          };
+          setStrikeHistory((prev) => {
+            const next = [...prev, newEntry];
+            if (newStrikes >= GAME_CONFIG.MAX_STRIKES) {
+              setGameOverGridData({
+                baselineAndPassed: previousFaces.map((f) => ({
+                  imageUri: f.imageUri,
+                  blendshapes: f.blendshapes ?? [],
+                  label: `R${f.roundIndex + 1}`,
+                })),
+                strikeFaces: next.map((s, i) => ({
+                  imageUri: s.currentImageUri,
+                  blendshapes: s.currentBlendshapes ?? [],
+                  label: `S${i + 1}`,
+                })),
+              });
+            }
+            return next;
+          });
           setStrikes(newStrikes);
-
+          setResultFlash({
+            imageUri: photo.uri,
+            label: flashLabel!,
+            resultsReady: true,
+            pendingGameOver: newStrikes >= GAME_CONFIG.MAX_STRIKES,
+          });
           if (newStrikes >= GAME_CONFIG.MAX_STRIKES) {
             clearStoredFaces();
             setStrikes(0);
-            transition('gameOver');
           }
         } else {
           const savedIod = getInterOcularDistance(blendshapeResult.faceLandmarks);
@@ -247,6 +294,7 @@ export function GameScreen() {
             timestamp: Date.now(),
           });
           transition('playing', rd + 1);
+          setResultFlash({ imageUri: photo.uri, label: null, resultsReady: true });
         }
       } else {
         setCaptureData({
@@ -263,7 +311,7 @@ export function GameScreen() {
       console.error('[321FACE] captureAndProcess error:', err);
       transition('playing');
     }
-  }, []);
+  }, [blendshapeThreshold]);
 
   const handleDebugContinue = useCallback(async () => {
     const data = captureData;
@@ -291,6 +339,7 @@ export function GameScreen() {
   }, [captureData]);
 
   const handlePlayAgain = useCallback(() => {
+    setGameOverGridData(null);
     clearStoredFaces();
     (navigation as any).reset({ index: 0, routes: [{ name: 'Home' }] });
   }, [navigation]);
@@ -310,6 +359,31 @@ export function GameScreen() {
     }
   }, [strikes, goBack]);
 
+  // Result flash: 0.5s from when results are ready, then dismiss and allow countdown to start
+  useEffect(() => {
+    if (!resultFlash || !resultFlash.resultsReady) return;
+    const id = setTimeout(() => {
+      setResultFlash(null);
+      if (resultFlash.pendingGameOver) {
+        transition('gameOver');
+      }
+    }, 500);
+    return () => clearTimeout(id);
+  }, [resultFlash]);
+
+  // Auto-start countdown in play mode (no manual capture)
+  useEffect(() => {
+    if (
+      playMode &&
+      gameState === 'playing' &&
+      phase === null &&
+      roundIndex >= 1 &&
+      !resultFlash
+    ) {
+      start({ onFace: () => captureAndProcess(true) });
+    }
+  }, [playMode, gameState, phase, roundIndex, resultFlash, start, captureAndProcess]);
+
   if (!permission) {
     return <View style={styles.center}><ActivityIndicator size="large" /></View>;
   }
@@ -328,12 +402,25 @@ export function GameScreen() {
     );
   }
 
-  const showCameraUI = gameState === 'playing' || gameState === 'processing';
-  const showFaceOval = playMode && baselineLandmarks && overlaySize.width > 0 && (phase === 0 || phase === 1);
+  const showCameraUI = gameState === 'playing' || gameState === 'processing' || !!resultFlash;
+  const showFaceOval = playMode && baselineLandmarks && overlaySize.width > 0 && phase !== null;
 
   return (
     <View style={styles.container}>
       <CameraView style={styles.camera} ref={cameraRef} facing="front" />
+
+      {resultFlash && (
+        <View style={styles.resultFlashOverlay} pointerEvents="none">
+          <Image
+            source={{ uri: resultFlash.imageUri }}
+            style={styles.resultFlashImage}
+            resizeMode="cover"
+          />
+          {resultFlash.label && (
+            <Text style={styles.resultFlashText}>{resultFlash.label}</Text>
+          )}
+        </View>
+      )}
 
       {showCameraUI && (
         <View
@@ -344,14 +431,15 @@ export function GameScreen() {
             setOverlaySize({ width, height });
           }}
         >
-          {baselineLandmarks && overlaySize.width > 0 && (showFaceOval || !playMode) && (
+          {baselineLandmarks && overlaySize.width > 0 && (showFaceOval || !playMode) && !resultFlash && (
             <FaceOvalOverlay
               landmarks={baselineLandmarks}
               width={overlaySize.width}
               height={overlaySize.height}
               sourceImageWidth={baselineSourceSize?.width}
               sourceImageHeight={baselineSourceSize?.height}
-              mirror={playMode}
+              previewScaleMode="fill"
+              mirror={false}
             />
           )}
           <TouchableOpacity style={styles.backBtn} onPress={goBack}>
@@ -363,24 +451,20 @@ export function GameScreen() {
               Strikes: {strikes} / {GAME_CONFIG.MAX_STRIKES}
             </Text>
           </View>
-          {label && (
+          {label && !resultFlash && (
             <View style={styles.countdownBox}>
               <Text style={styles.countdownText}>{label}</Text>
             </View>
           )}
           <View style={styles.bottomBar}>
-            {gameState === 'processing' ? (
+            {gameState === 'processing' && !playMode ? (
               <ActivityIndicator size="large" color="#fff" />
-            ) : phase !== null ? null : (
+            ) : !playMode && phase === null ? (
               <TouchableOpacity
                 style={styles.captureButton}
-                onPress={() =>
-                  playMode
-                    ? start({ onFace: () => captureAndProcess(true) })
-                    : captureAndProcess()
-                }
+                onPress={() => captureAndProcess()}
               />
-            )}
+            ) : null}
           </View>
           {!playMode && lastBenchmarks && (
             <View style={styles.benchmarkStrip}>
@@ -420,13 +504,15 @@ export function GameScreen() {
             onContinue={handleStrikeContinue}
             benchmarks={captureData.result.benchmarks}
             scores={captureData.result.scores}
+            previousFaces={captureData.previousFaces}
+            currentBlendshapes={captureData.blendshapes?.scores}
           />
         </View>
       )}
 
       {gameState === 'gameOver' && strikeHistory.length >= 3 && (
         <View style={styles.fullOverlay}>
-          <GameOverScreen strikes={strikeHistory} onPlayAgain={handlePlayAgain} />
+          <GameOverScreen strikes={strikeHistory} totalFaces={roundIndex} onPlayAgain={handlePlayAgain} gridData={gameOverGridData ?? undefined} />
         </View>
       )}
     </View>
@@ -438,6 +524,27 @@ const styles = StyleSheet.create({
   camera: { flex: 1 },
   overlay: { ...StyleSheet.absoluteFillObject },
   fullOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 10 },
+  resultFlashOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 12,
+    backgroundColor: '#000',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  resultFlashImage: {
+    width: '100%',
+    height: '100%',
+    transform: [{ scaleX: -1 }],
+  },
+  resultFlashText: {
+    position: 'absolute',
+    fontSize: 48,
+    fontWeight: 'bold',
+    color: '#c00',
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
+  },
   backBtn: { position: 'absolute', top: 48, left: 16, zIndex: 10 },
   backBtnText: { color: '#fff', fontSize: 18, fontWeight: '600' },
   topBar: { position: 'absolute', top: 48, left: 0, right: 0, alignItems: 'center' },

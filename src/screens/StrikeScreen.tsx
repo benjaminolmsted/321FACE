@@ -1,5 +1,6 @@
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { ProcessResult } from '../services/FaceComparisonService';
+import { DataGrid } from './DebugScreen';
 
 type Props = {
   reason: 'similar' | 'tilt' | 'zoom';
@@ -9,6 +10,9 @@ type Props = {
   onContinue: () => void;
   benchmarks?: ProcessResult['benchmarks'];
   scores?: ProcessResult['scores'];
+  /** For debug grid: previous faces + current blendshapes. If provided, shows similarity grid. */
+  previousFaces?: { imageUri: string; blendshapes?: number[]; round: number }[];
+  currentBlendshapes?: number[];
 };
 
 export function StrikeScreen({
@@ -19,6 +23,8 @@ export function StrikeScreen({
   onContinue,
   benchmarks,
   scores,
+  previousFaces,
+  currentBlendshapes,
 }: Props) {
   const isTilt = reason === 'tilt';
   const isZoom = reason === 'zoom';
@@ -31,6 +37,17 @@ export function StrikeScreen({
       <Text style={styles.title}>{isTilt ? 'TILT!!!' : isZoom ? 'ZOOM!!!' : 'Strike!'}</Text>
       <Text style={styles.subtitle}>{subtitle}</Text>
       <Text style={styles.strikes}>Strikes: {strikes} / 3</Text>
+
+      {/* Blendshape distance grid: faces on diagonal, similarity scores in cells */}
+      {previousFaces && currentBlendshapes && previousFaces.length >= 1 && (
+        <DataGrid
+          vectors={[...previousFaces.map((f) => f.blendshapes ?? []), currentBlendshapes]}
+          labels={[...previousFaces.map((f) => `R${f.round + 1}`), 'Now']}
+          title="Blendshape distance (L2)"
+          mode="euclidean"
+          imageUris={[...previousFaces.map((f) => f.imageUri), currentImageUri]}
+        />
+      )}
 
       {(benchmarks || scores) && (
         <View style={styles.debugBox}>

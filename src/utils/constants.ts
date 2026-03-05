@@ -4,13 +4,13 @@
 
 export const GAME_CONFIG = {
   MAX_STRIKES: 3,
-  TILT_THRESHOLD_DEGREES: 20,
+  TILT_THRESHOLD_DEGREES: 15,
 } as const;
 
 export const COMPARISON_STRATEGIES: readonly string[] = [];
 export type ComparisonStrategyType = 'contour' | 'embedding';
 
-export const BLENDSHAPE_DISTANCE_THRESHOLD = 0.2;
+export const BLENDSHAPE_DISTANCE_THRESHOLD = 0.225;
 
 /** Strike if inter-ocular distance differs from baseline by more than this fraction (e.g. 0.10 = 10%) */
 export const INTER_OCULAR_ZOOM_THRESHOLD = 0.1;

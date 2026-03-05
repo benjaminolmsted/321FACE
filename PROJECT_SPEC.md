@@ -76,7 +76,7 @@
 
 - Uses `faceLandmarkDetectionOnImage(imagePath, 'face_landmarker.task', options)` from `react-native-mediapipe`
 - Returns: 52 blendshapes, 478 landmarks (normalized 0–1), face pose (pitch/roll/yaw), timing
-- Warmup: call with a face image on app start to pre-load the model (non-fatal if it fails)
+- Warmup: runs on app open (App.tsx) using `assets/warmup.png` to pre-load the model (non-fatal if it fails). Replace `warmup.png` with a real face image for reliable warmup.
 - `blendshapeDistance(a, b)`: Euclidean distance
 - `getInterOcularDistance(landmarks)`: distance between landmarks 33 and 263
 
@@ -103,6 +103,20 @@
 - **Round 1+**: `getFacesForRound(roundIndex)` returns all prior faces. Compare current blendshapes to each; compute min blendshape distance. Compare pose for tilt, IOD for zoom.
 - If strike: show flash, increment strikes, optionally restart countdown. If 3 strikes → game over.
 - If no strike: `saveFace` with current data, increment round, restart countdown.
+
+---
+
+## After prebuild --clean
+
+Running `npx expo prebuild --clean` regenerates `android/` and wipes manual edits. Re-add the AsyncStorage maven repo in `android/build.gradle` inside `allprojects.repositories`:
+
+```groovy
+maven {
+  url new File(rootProject.projectDir, "../node_modules/@react-native-async-storage/async-storage/android/local_repo").toURI()
+}
+```
+
+(face_landmarker.task is handled by the `withMediaPipeAssets` plugin and survives prebuild.)
 
 ---
 

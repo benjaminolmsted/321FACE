@@ -5,10 +5,10 @@
  * Coordinate system: MediaPipe returns landmarks normalized [0,1] where
  * x = horizontal position relative to image WIDTH (0=left, 1=right)
  * y = vertical position relative to image HEIGHT (0=top, 1=bottom)
- * So: pixelX = x * sourceImageWidth, pixelY = y * sourceImageHeight
  *
- * When sourceImageWidth/Height are provided, we scale from source rect to overlay
- * rect preserving aspect ratio (fit). Otherwise we use overlay dimensions directly.
+ * previewScaleMode must match CameraView:
+ * - fit: preview uses contain (letterboxing). Android typically.
+ * - fill: preview uses cover (cropping). iOS typically.
  */
 import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -30,8 +30,16 @@ interface FaceOvalOverlayProps {
   /** Source image dimensions; landmarks are relative to these. Required for correct scaling. */
   sourceImageWidth?: number;
   sourceImageHeight?: number;
+  /** How camera preview scales: 'fit' (contain) or 'fill' (cover). Must match CameraView. */
+  previewScaleMode?: 'fit' | 'fill';
+  /** Scale multiplier for oval size (default 1). Use >1 to enlarge if oval appears too small. */
+  scaleX?: number;
+  /** Scale multiplier for oval size (default 1). Use >1 to enlarge if oval appears too small. */
+  scaleY?: number;
   /** Mirror horizontally (for front camera preview). */
   mirror?: boolean;
+  /** Horizontal offset in overlay pixels (positive = shift right). Use to correct x-axis misalignment. */
+  offsetX?: number;
   /** Stroke color. */
   stroke?: string;
   /** Stroke width. */
@@ -55,7 +63,7 @@ function getFaceOvalConnections(): { start: number; end: number }[] {
 }
 
 /** Build SVG path from landmarks + connections.
- * Maps normalized [0,1] source coords to overlay using aspect-ratio-preserving fit. */
+ * Maps normalized [0,1] source coords to overlay. previewScaleMode: fit=contain, fill=cover. */
 function buildOvalPath(
   landmarks: FaceLandmark[],
   connections: { start: number; end: number }[],
@@ -63,7 +71,11 @@ function buildOvalPath(
   overlayH: number,
   srcW: number | undefined,
   srcH: number | undefined,
-  mirror: boolean
+  previewScaleMode: 'fit' | 'fill',
+  scaleX: number,
+  scaleY: number,
+  mirror: boolean,
+  shiftX: number
 ): string {
   if (landmarks.length === 0 || connections.length === 0) return '';
 
@@ -71,20 +83,21 @@ function buildOvalPath(
   let toY: (y: number) => number;
 
   if (srcW != null && srcH != null && srcW > 0 && srcH > 0) {
-    // Fit source rect into overlay, preserve aspect ratio
-    const scale = Math.min(overlayW / srcW, overlayH / srcH);
-    const drawW = srcW * scale;
-    const drawH = srcH * scale;
+    const useFill = previewScaleMode === 'fill';
+    const scale = useFill
+      ? Math.max(overlayW / srcW, overlayH / srcH)
+      : Math.min(overlayW / srcW, overlayH / srcH);
+    const drawW = srcW * scale * scaleX;
+    const drawH = srcH * scale * scaleY;
     const offsetX = (overlayW - drawW) / 2;
     const offsetY = (overlayH - drawH) / 2;
     toX = (x: number) => {
       const nx = mirror ? 1 - x : x;
-      return nx * srcW * scale + offsetX;
+      return nx * srcW * scale * scaleX + offsetX + shiftX;
     };
-    toY = (y: number) => y * srcH * scale + offsetY;
+    toY = (y: number) => y * srcH * scale * scaleY + offsetY;
   } else {
-    // Fallback: direct mapping (assumes overlay matches source aspect)
-    toX = (x: number) => (mirror ? (1 - x) * overlayW : x * overlayW);
+    toX = (x: number) => (mirror ? (1 - x) * overlayW : x * overlayW) + shiftX;
     toY = (y: number) => y * overlayH;
   }
 
@@ -104,7 +117,11 @@ export function FaceOvalOverlay({
   height,
   sourceImageWidth,
   sourceImageHeight,
+  previewScaleMode = 'fill',
+  scaleX = 1,
+  scaleY = 1,
   mirror = false,
+  offsetX = 0,
   stroke = 'rgba(0, 255, 136, 0.8)',
   strokeWidth = 2,
   opacity = 0.9,
@@ -120,10 +137,14 @@ export function FaceOvalOverlay({
       height,
       sourceImageWidth,
       sourceImageHeight,
-      mirror
+      previewScaleMode,
+      scaleX,
+      scaleY,
+      mirror,
+      offsetX
     );
     setPath(d);
-  }, [landmarks, width, height, sourceImageWidth, sourceImageHeight, mirror]);
+  }, [landmarks, width, height, sourceImageWidth, sourceImageHeight, previewScaleMode, scaleX, scaleY, mirror, offsetX]);
 
   if (!path || width < 1 || height < 1) return null;
 

@@ -43,8 +43,8 @@ function fmtDist(val: number): string {
   return val.toFixed(3);
 }
 
-// Shared grid component for both cosine similarity and blendshape distance
-function DataGrid({ vectors, labels, title, mode, imageUris }: {
+// Shared grid component for both cosine similarity and blendshape distance. Exported for use in StrikeScreen.
+export function DataGrid({ vectors, labels, title, mode, imageUris }: {
   vectors: number[][];
   labels: string[];
   title: string;

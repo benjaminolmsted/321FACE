@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import type { PlayMode } from './HomeScreen';
+
+const BLENDSHAPE_THRESHOLDS: Record<PlayMode, number> = {
+  subtle: 0.175,
+  balanced: 0.25,
+  extreme: 0.45,
+};
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -9,6 +16,10 @@ import { saveFace, clearStoredFaces } from '../services/StorageService';
 
 export function BaselineCaptureScreen() {
   const navigation = useNavigation();
+  const route = useRoute();
+  const params = (route.params as { mode?: PlayMode; debug?: boolean } | undefined) ?? {};
+  const isDebug = params.debug === true;
+  const mode = params.mode ?? 'balanced';
   const goBack = useCallback(() => navigation.goBack(), [navigation]);
   const [permission, requestPermission] = useCameraPermissions();
   const [loading, setLoading] = useState(false);
@@ -79,7 +90,10 @@ export function BaselineCaptureScreen() {
         timestamp: Date.now(),
       });
 
-      (navigation as any).navigate('Game', { playMode: true });
+      (navigation as any).navigate('Game', {
+        playMode: !isDebug,
+        blendshapeThreshold: isDebug ? undefined : BLENDSHAPE_THRESHOLDS[mode],
+      });
     } catch (err) {
       console.error('[BaselineCapture] error:', err);
       setError('Capture failed. Try again.');
