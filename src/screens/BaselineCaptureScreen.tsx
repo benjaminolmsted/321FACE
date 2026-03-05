@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigation } from '@react-navigation/native';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -13,6 +13,8 @@ export function BaselineCaptureScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Image URI passed to MediaPipe when detection fails (for debugging) */
+  const [debugImageUri, setDebugImageUri] = useState<string | null>(null);
 
   const cameraRef = useRef<CameraView>(null);
 
@@ -24,6 +26,7 @@ export function BaselineCaptureScreen() {
     if (!cameraRef.current) return;
     setLoading(true);
     setError(null);
+    setDebugImageUri(null);
 
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.9, base64: false });
@@ -49,6 +52,7 @@ export function BaselineCaptureScreen() {
       const result = await extractBlendshapes(permPath);
 
       if (!result) {
+        setDebugImageUri(permPath);
         setError('No face detected. Try again.');
         setLoading(false);
         return;
@@ -122,9 +126,21 @@ export function BaselineCaptureScreen() {
         </View>
 
         {error && (
-          <View style={styles.errorBox}>
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
+          <ScrollView style={styles.debugScroll} contentContainerStyle={styles.debugContainer}>
+            <View style={styles.errorBox}>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+            {debugImageUri && (
+              <View style={styles.debugImageBox}>
+                <Text style={styles.debugImageLabel}>Image passed to MediaPipe:</Text>
+                <Image
+                  source={{ uri: debugImageUri }}
+                  style={styles.debugImage}
+                  resizeMode="contain"
+                />
+              </View>
+            )}
+          </ScrollView>
         )}
 
         <View style={styles.bottomBar}>
@@ -163,8 +179,6 @@ const styles = StyleSheet.create({
   },
   message: { color: '#fff', fontSize: 18, textAlign: 'center', fontWeight: '500' },
   errorBox: {
-    position: 'absolute',
-    bottom: 140,
     left: 24,
     right: 24,
     backgroundColor: 'rgba(180,0,0,0.8)',
@@ -173,6 +187,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   errorText: { color: '#fff', fontSize: 14 },
+  debugScroll: {
+    position: 'absolute',
+    bottom: 140,
+    left: 0,
+    right: 0,
+    maxHeight: 300,
+  },
+  debugContainer: {
+    paddingHorizontal: 24,
+    paddingBottom: 8,
+    alignItems: 'center',
+  },
+  debugImageBox: {
+    marginTop: 12,
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    padding: 12,
+    borderRadius: 8,
+  },
+  debugImageLabel: {
+    color: '#fff',
+    fontSize: 12,
+    marginBottom: 8,
+  },
+  debugImage: {
+    width: 200,
+    height: 267,
+    backgroundColor: '#333',
+  },
   bottomBar: {
     position: 'absolute',
     bottom: 48,

@@ -6,7 +6,8 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "download-face-landmarker": "curl -sL -o assets/face_landmarker.task 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task'"
   },
   "dependencies": {
     "@babel/generator": "^7.29.1",

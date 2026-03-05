@@ -69,7 +69,8 @@
         {
           "enableAndroidGpuLibraries": true
         }
-      ]
+      ],
+      "./plugins/withMediaPipeAssets"
     ],
     "web": {
       "favicon": "./assets/favicon.png"
