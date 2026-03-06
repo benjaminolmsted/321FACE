@@ -70,7 +70,9 @@
           "enableAndroidGpuLibraries": true
         }
       ],
-      "./plugins/withMediaPipeAssets"
+      "./plugins/withMediaPipeAssets",
+      "./plugins/withDebugAppName",
+      "./plugins/withDebugApplicationId"
     ],
     "web": {
       "favicon": "./assets/favicon.png"

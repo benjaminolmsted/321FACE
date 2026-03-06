@@ -4,8 +4,14 @@ import type { PlayMode } from './HomeScreen';
 
 const BLENDSHAPE_THRESHOLDS: Record<PlayMode, number> = {
   subtle: 0.175,
-  balanced: 0.25,
-  extreme: 0.45,
+  balanced: 0.3,
+  extreme: 0.9,
+};
+
+const MAX_STRIKES_BY_MODE: Record<PlayMode, number> = {
+  subtle: 3,
+  balanced: 2,
+  extreme: 1,
 };
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -93,6 +99,7 @@ export function BaselineCaptureScreen() {
       (navigation as any).navigate('Game', {
         playMode: !isDebug,
         blendshapeThreshold: isDebug ? undefined : BLENDSHAPE_THRESHOLDS[mode],
+        maxStrikes: isDebug ? undefined : MAX_STRIKES_BY_MODE[mode],
       });
     } catch (err) {
       console.error('[BaselineCapture] error:', err);

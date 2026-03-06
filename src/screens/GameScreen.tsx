@@ -37,7 +37,7 @@ interface CaptureData {
   previousFaces: PreviousFaceDebug[];
 }
 
-type RouteParams = { playMode?: boolean; blendshapeThreshold?: number };
+type RouteParams = { playMode?: boolean; blendshapeThreshold?: number; maxStrikes?: number };
 
 export function GameScreen() {
   const navigation = useNavigation();
@@ -45,6 +45,7 @@ export function GameScreen() {
   const params = (route.params as RouteParams | undefined) ?? {};
   const playMode = params.playMode ?? false;
   const blendshapeThreshold = params.blendshapeThreshold ?? BLENDSHAPE_DISTANCE_THRESHOLD;
+  const maxStrikes = params.maxStrikes ?? GAME_CONFIG.MAX_STRIKES;
 
   const goBack = useCallback(() => navigation.goBack(), [navigation]);
   const [permission, requestPermission] = useCameraPermissions();
@@ -64,11 +65,6 @@ export function GameScreen() {
   const [baselineLandmarks, setBaselineLandmarks] = useState<{ x: number; y: number; z: number }[] | null>(null);
   const [baselineSourceSize, setBaselineSourceSize] = useState<{ width: number; height: number } | null>(null);
   const [overlaySize, setOverlaySize] = useState({ width: 0, height: 0 });
-  const [gameOverGridData, setGameOverGridData] = useState<{
-    baselineAndPassed: { imageUri: string; blendshapes: number[]; label: string }[];
-    strikeFaces: { imageUri: string; blendshapes: number[]; label: string }[];
-  } | null>(null);
-
   const { phase, label, start } = useCountdown3251();
   const cameraRef = useRef<CameraView>(null);
   const gameStateRef = useRef<GameState>('playing');
@@ -250,32 +246,15 @@ export function GameScreen() {
             previousImageUri,
             currentBlendshapes: blendshapeResult.scores,
           };
-          setStrikeHistory((prev) => {
-            const next = [...prev, newEntry];
-            if (newStrikes >= GAME_CONFIG.MAX_STRIKES) {
-              setGameOverGridData({
-                baselineAndPassed: previousFaces.map((f) => ({
-                  imageUri: f.imageUri,
-                  blendshapes: f.blendshapes ?? [],
-                  label: `R${f.roundIndex + 1}`,
-                })),
-                strikeFaces: next.map((s, i) => ({
-                  imageUri: s.currentImageUri,
-                  blendshapes: s.currentBlendshapes ?? [],
-                  label: `S${i + 1}`,
-                })),
-              });
-            }
-            return next;
-          });
+          setStrikeHistory((prev) => [...prev, newEntry]);
           setStrikes(newStrikes);
           setResultFlash({
             imageUri: photo.uri,
             label: flashLabel!,
             resultsReady: true,
-            pendingGameOver: newStrikes >= GAME_CONFIG.MAX_STRIKES,
+            pendingGameOver: newStrikes >= maxStrikes,
           });
-          if (newStrikes >= GAME_CONFIG.MAX_STRIKES) {
+          if (newStrikes >= maxStrikes) {
             clearStoredFaces();
             setStrikes(0);
           }
@@ -339,7 +318,6 @@ export function GameScreen() {
   }, [captureData]);
 
   const handlePlayAgain = useCallback(() => {
-    setGameOverGridData(null);
     clearStoredFaces();
     (navigation as any).reset({ index: 0, routes: [{ name: 'Home' }] });
   }, [navigation]);
@@ -348,7 +326,7 @@ export function GameScreen() {
     setCaptureData(null);
     const newStrikes = strikes + 1;
     setStrikes(newStrikes);
-    if (newStrikes >= GAME_CONFIG.MAX_STRIKES) {
+    if (newStrikes >= maxStrikes) {
       clearStoredFaces();
       setStrikes(0);
       transition('playing', 0);
@@ -357,7 +335,7 @@ export function GameScreen() {
       const rd = roundIndexRef.current;
       transition('playing', rd + 1);
     }
-  }, [strikes, goBack]);
+  }, [strikes, maxStrikes, goBack]);
 
   // Result flash: 0.5s from when results are ready, then dismiss and allow countdown to start
   useEffect(() => {
@@ -448,7 +426,7 @@ export function GameScreen() {
           <View style={styles.topBar}>
             <Text style={styles.roundText}>Round {roundIndex + 1}</Text>
             <Text style={styles.strikesText}>
-              Strikes: {strikes} / {GAME_CONFIG.MAX_STRIKES}
+              Strikes: {strikes} / {maxStrikes}
             </Text>
           </View>
           {label && !resultFlash && (
@@ -501,6 +479,7 @@ export function GameScreen() {
             currentImageUri={captureData.rawImageUri}
             previousImageUri={captureData.previousFaces[captureData.previousFaces.length - 1]?.imageUri}
             strikes={strikes + 1}
+            maxStrikes={maxStrikes}
             onContinue={handleStrikeContinue}
             benchmarks={captureData.result.benchmarks}
             scores={captureData.result.scores}
@@ -510,9 +489,9 @@ export function GameScreen() {
         </View>
       )}
 
-      {gameState === 'gameOver' && strikeHistory.length >= 3 && (
+      {gameState === 'gameOver' && strikeHistory.length > 0 && (
         <View style={styles.fullOverlay}>
-          <GameOverScreen strikes={strikeHistory} totalFaces={roundIndex} onPlayAgain={handlePlayAgain} gridData={gameOverGridData ?? undefined} />
+          <GameOverScreen strikes={strikeHistory} totalFaces={roundIndex} onPlayAgain={handlePlayAgain} />
         </View>
       )}
     </View>

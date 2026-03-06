@@ -7,6 +7,7 @@ type Props = {
   currentImageUri: string;
   previousImageUri?: string;
   strikes: number;
+  maxStrikes: number;
   onContinue: () => void;
   benchmarks?: ProcessResult['benchmarks'];
   scores?: ProcessResult['scores'];
@@ -20,6 +21,7 @@ export function StrikeScreen({
   currentImageUri,
   previousImageUri,
   strikes,
+  maxStrikes,
   onContinue,
   benchmarks,
   scores,
@@ -36,7 +38,7 @@ export function StrikeScreen({
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
       <Text style={styles.title}>{isTilt ? 'TILT!!!' : isZoom ? 'ZOOM!!!' : 'Strike!'}</Text>
       <Text style={styles.subtitle}>{subtitle}</Text>
-      <Text style={styles.strikes}>Strikes: {strikes} / 3</Text>
+      <Text style={styles.strikes}>Strikes: {strikes} / {maxStrikes}</Text>
 
       {/* Blendshape distance grid: faces on diagonal, similarity scores in cells */}
       {previousFaces && currentBlendshapes && previousFaces.length >= 1 && (

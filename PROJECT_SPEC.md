@@ -106,6 +106,21 @@
 
 ---
 
+## Installing on Android
+
+**Blank screen?** A debug build (`npx expo run:android`) loads JavaScript from Metro. To install a **standalone APK** that works without a dev server:
+
+```bash
+npx expo run:android --variant release
+# or: npm run android:release
+```
+
+The APK is at `android/app/build/outputs/apk/release/app-release.apk`. Copy to your device and install (enable "Install from unknown sources" if needed).
+
+**For development** (USB debugging): Run `npx expo start` in one terminal, then `npx expo run:android` in another. The app must connect to Metro on your machine (same WiFi or USB with `adb reverse tcp:8081 tcp:8081`).
+
+---
+
 ## After prebuild --clean
 
 Running `npx expo prebuild --clean` regenerates `android/` and wipes manual edits. Re-add the AsyncStorage maven repo in `android/build.gradle` inside `allprojects.repositories`:
@@ -117,6 +132,9 @@ maven {
 ```
 
 (face_landmarker.task is handled by the `withMediaPipeAssets` plugin and survives prebuild.)
+
+- **App names**: Debug build shows "_321FACE", release shows "321FACE" (via `withDebugAppName` plugin).
+- **Separate installs**: Debug uses `applicationIdSuffix ".debug"` so both release APK and dev build can be installed at once without overwriting (via `withDebugApplicationId` plugin).
 
 ---
 
