@@ -1,0 +1,53 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.ffmpeglocal'
+version = '0.7.9'
+
+// 1. Tell Gradle to prioritize your local folder
+repositories {
+    flatDir {
+        dirs 'libs'
+    }
+    mavenCentral()
+}
+
+android {
+  namespace "expo.modules.ffmpeglocal"
+  
+  // 2. Critical: FFmpeg requires specific NDK support
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+
+  kotlinOptions {
+    jvmTarget = '17'
+  }
+
+  defaultConfig {
+    versionCode 1
+    versionName "0.7.9"
+    
+    // Limits build to phone-friendly architectures
+    ndk {
+      abiFilters "armeabi-v7a", "arm64-v8a"
+    }
+  }
+
+  lintOptions {
+    abortOnError false
+  }
+}
+
+dependencies {
+  // 3. Link your 40MB binary from the /libs folder
+  // Make sure your file is named: ffmpeg-kit-full-gpl.aar
+  implementation(name: 'ffmpeg-kit-full-gpl', ext: 'aar')
+
+  // 4. These are the "smart exception" companions 
+  // Even with local AARs, FFmpeg still expects these Java helpers
+  implementation("com.arthenica:smart-exception-java:0.2.1")
+}

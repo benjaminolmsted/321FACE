@@ -7,15 +7,19 @@ export type StrikeDetail = {
   currentImageUri: string;
   previousImageUri?: string;
   currentBlendshapes?: number[];
+  /** Round when strike occurred; used for temporal ordering (strike before pass in same round) */
+  roundIndex: number;
 };
 
 type Props = {
   strikes: StrikeDetail[];
   totalFaces: number;
+  /** Faces in temporal order (strike before pass in same round) for video export */
+  allFaceUris: string[];
   onPlayAgain: () => void;
 };
 
-export function GameOverScreen({ strikes, totalFaces, onPlayAgain }: Props) {
+export function GameOverScreen({ strikes, totalFaces, allFaceUris, onPlayAgain }: Props) {
   const [exporting, setExporting] = useState(false);
 
   const handleExportImages = useCallback(async () => {

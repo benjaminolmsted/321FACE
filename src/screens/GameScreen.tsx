@@ -65,6 +65,7 @@ export function GameScreen() {
   const [baselineLandmarks, setBaselineLandmarks] = useState<{ x: number; y: number; z: number }[] | null>(null);
   const [baselineSourceSize, setBaselineSourceSize] = useState<{ width: number; height: number } | null>(null);
   const [overlaySize, setOverlaySize] = useState({ width: 0, height: 0 });
+  const [allFaceUris, setAllFaceUris] = useState<string[]>([]);
   const { phase, label, start } = useCountdown3251();
   const cameraRef = useRef<CameraView>(null);
   const gameStateRef = useRef<GameState>('playing');
@@ -245,6 +246,7 @@ export function GameScreen() {
             currentImageUri: permPath,
             previousImageUri,
             currentBlendshapes: blendshapeResult.scores,
+            roundIndex: rd,
           };
           setStrikeHistory((prev) => [...prev, newEntry]);
           setStrikes(newStrikes);
@@ -255,8 +257,8 @@ export function GameScreen() {
             pendingGameOver: newStrikes >= maxStrikes,
           });
           if (newStrikes >= maxStrikes) {
-            clearStoredFaces();
             setStrikes(0);
+            // Defer clearStoredFaces to handlePlayAgain so allFaceUris can be built for video export
           }
         } else {
           const savedIod = getInterOcularDistance(blendshapeResult.faceLandmarks);
@@ -340,14 +342,25 @@ export function GameScreen() {
   // Result flash: 0.5s from when results are ready, then dismiss and allow countdown to start
   useEffect(() => {
     if (!resultFlash || !resultFlash.resultsReady) return;
-    const id = setTimeout(() => {
+    const id = setTimeout(async () => {
+      const wasGameOver = resultFlash.pendingGameOver;
       setResultFlash(null);
-      if (resultFlash.pendingGameOver) {
+      if (wasGameOver) {
+        const stored = await getFacesForRound(roundIndexRef.current);
+        const strikeItems = strikeHistory.map((s) => ({ roundIndex: s.roundIndex, imageUri: s.currentImageUri, isStrike: true as const }));
+        const passItems = stored.map((f) => ({ roundIndex: f.roundIndex, imageUri: f.imageUri, isStrike: false as const }));
+        const merged = [...strikeItems, ...passItems]
+          .sort((a, b) => {
+            if (a.roundIndex !== b.roundIndex) return a.roundIndex - b.roundIndex;
+            return a.isStrike ? -1 : 1; // strike before pass in same round
+          })
+          .map((x) => x.imageUri);
+        setAllFaceUris(merged);
         transition('gameOver');
       }
     }, 500);
     return () => clearTimeout(id);
-  }, [resultFlash]);
+  }, [resultFlash, strikeHistory]);
 
   // Auto-start countdown in play mode (no manual capture)
   useEffect(() => {
@@ -491,7 +504,7 @@ export function GameScreen() {
 
       {gameState === 'gameOver' && strikeHistory.length > 0 && (
         <View style={styles.fullOverlay}>
-          <GameOverScreen strikes={strikeHistory} totalFaces={roundIndex} onPlayAgain={handlePlayAgain} />
+          <GameOverScreen strikes={strikeHistory} totalFaces={roundIndex} allFaceUris={allFaceUris} onPlayAgain={handlePlayAgain} />
         </View>
       )}
     </View>

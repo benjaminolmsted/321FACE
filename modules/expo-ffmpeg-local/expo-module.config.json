@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android", "web"],
+  "apple": {
+    "modules": ["ExpoFfmpegLocalModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.ffmpeglocal.ExpoFfmpegLocalModule"]
+  }
+}
