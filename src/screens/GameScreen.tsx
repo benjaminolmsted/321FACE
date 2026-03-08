@@ -7,7 +7,7 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { extractBlendshapes, blendshapeDistance, getInterOcularDistance, type BlendshapeResult } from '../services/BlendshapeService';
 import type { ProcessResult } from '../services/FaceComparisonService';
 import { saveFace, getFacesForRound, clearStoredFaces } from '../services/StorageService';
-import { GAME_CONFIG, BLENDSHAPE_DISTANCE_THRESHOLD, INTER_OCULAR_ZOOM_THRESHOLD } from '../utils/constants';
+import { GAME_CONFIG, BLENDSHAPE_DISTANCE_THRESHOLD, CAPTURE_MAX_WIDTH, INTER_OCULAR_ZOOM_THRESHOLD } from '../utils/constants';
 import { FaceOvalOverlay } from '../components/FaceOvalOverlay';
 import { DebugScreen, type PreviousFaceDebug } from './DebugScreen';
 import { StrikeScreen } from './StrikeScreen';
@@ -60,6 +60,8 @@ export function GameScreen() {
     label: 'TILT' | 'ZOOM' | 'STRIKE' | null;
     resultsReady: boolean;
     pendingGameOver?: boolean;
+    /** Temp full-size file to delete when flash is cleared */
+    tempPathToCleanup?: string;
   } | null>(null);
   const [lastBenchmarks, setLastBenchmarks] = useState<ProcessResult['benchmarks']>();
   const [baselineLandmarks, setBaselineLandmarks] = useState<{ x: number; y: number; z: number }[] | null>(null);
@@ -114,30 +116,54 @@ export function GameScreen() {
     transition('processing');
 
     try {
-      const photo = await cameraRef.current.takePictureAsync({ quality: 1, base64: false });
+      const photo = await cameraRef.current.takePictureAsync({ quality: 1, base64: false, shutterSound: false });
       if (!photo?.uri) { transition('playing'); return; }
-
-      // Show captured image immediately (before slow flip/copy); processing continues in background
-      if (isPlayMode) {
-        transition('playing');
-        setResultFlash({ imageUri: photo.uri, label: null, resultsReady: false });
-      }
+      console.log('[321FACE] Captured photo dimensions:', photo.width, 'x', photo.height);
 
       const docDir = FileSystem.documentDirectory;
       if (!docDir) { transition('playing'); return; }
 
-      const permPath = `${docDir}face_${Date.now()}.jpg`;
-      const flipped = await ImageManipulator.manipulateAsync(
+      const ts = Date.now();
+      const tempLargePath = `${docDir}face_temp_large_${ts}.jpg`;
+      const permPath = `${docDir}face_${ts}.jpg`;
+
+      // 1. Flip full-size → temp (for blendshape extraction and result flash display)
+      const flippedFull = await ImageManipulator.manipulateAsync(
         photo.uri,
         [{ flip: ImageManipulator.FlipType.Horizontal }],
         { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
       );
-      await FileSystem.copyAsync({ from: flipped.uri, to: permPath });
+      await FileSystem.copyAsync({ from: flippedFull.uri, to: tempLargePath });
 
-      const blendshapeResult = await extractBlendshapes(permPath);
+      if (isPlayMode) {
+        transition('playing');
+        setResultFlash({
+          imageUri: tempLargePath,
+          label: null,
+          resultsReady: false,
+          tempPathToCleanup: tempLargePath,
+        });
+      }
+
+      // 2. Create smaller permanent copy for storage and video export
+      if (photo.width > CAPTURE_MAX_WIDTH) {
+        const resized = await ImageManipulator.manipulateAsync(
+          tempLargePath,
+          [{ resize: { width: CAPTURE_MAX_WIDTH } }],
+          { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
+        );
+        await FileSystem.copyAsync({ from: resized.uri, to: permPath });
+      } else {
+        await FileSystem.copyAsync({ from: tempLargePath, to: permPath });
+      }
+
+      // 3. Extract blendshapes from full-size image
+      const blendshapeResult = await extractBlendshapes(tempLargePath);
 
       if (!blendshapeResult) {
         console.log('[321FACE] CAPTURE no face', { imageUri: permPath });
+        await FileSystem.deleteAsync(tempLargePath, { idempotent: true });
+        await FileSystem.deleteAsync(permPath, { idempotent: true });
         if (isPlayMode) setResultFlash(null);
         transition('playing');
         return;
@@ -251,10 +277,11 @@ export function GameScreen() {
           setStrikeHistory((prev) => [...prev, newEntry]);
           setStrikes(newStrikes);
           setResultFlash({
-            imageUri: photo.uri,
+            imageUri: tempLargePath,
             label: flashLabel!,
             resultsReady: true,
             pendingGameOver: newStrikes >= maxStrikes,
+            tempPathToCleanup: tempLargePath,
           });
           if (newStrikes >= maxStrikes) {
             setStrikes(0);
@@ -275,7 +302,12 @@ export function GameScreen() {
             timestamp: Date.now(),
           });
           transition('playing', rd + 1);
-          setResultFlash({ imageUri: photo.uri, label: null, resultsReady: true });
+          setResultFlash({
+            imageUri: tempLargePath,
+            label: null,
+            resultsReady: true,
+            tempPathToCleanup: tempLargePath,
+          });
         }
       } else {
         setCaptureData({
@@ -344,6 +376,9 @@ export function GameScreen() {
     if (!resultFlash || !resultFlash.resultsReady) return;
     const id = setTimeout(async () => {
       const wasGameOver = resultFlash.pendingGameOver;
+      if (resultFlash.tempPathToCleanup) {
+        await FileSystem.deleteAsync(resultFlash.tempPathToCleanup, { idempotent: true });
+      }
       setResultFlash(null);
       if (wasGameOver) {
         const stored = await getFacesForRound(roundIndexRef.current);
@@ -526,7 +561,6 @@ const styles = StyleSheet.create({
   resultFlashImage: {
     width: '100%',
     height: '100%',
-    transform: [{ scaleX: -1 }],
   },
   resultFlashText: {
     position: 'absolute',

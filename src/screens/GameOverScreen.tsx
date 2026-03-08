@@ -1,6 +1,7 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import * as MediaLibrary from 'expo-media-library';
+import { imagesToVideo } from '../services/VideoExportService';
 
 export type StrikeDetail = {
   type: 'similar' | 'tilt' | 'zoom';
@@ -19,8 +20,22 @@ type Props = {
   onPlayAgain: () => void;
 };
 
+const PREVIEW_INTERVAL_MS = 550; // Match video's 0.55s per frame
+
 export function GameOverScreen({ strikes, totalFaces, allFaceUris, onPlayAgain }: Props) {
   const [exporting, setExporting] = useState(false);
+  const [exportingVideo, setExportingVideo] = useState(false);
+  const [previewIndex, setPreviewIndex] = useState(0);
+
+  // Cycle through images while video renders (0.55s per frame to match output)
+  useEffect(() => {
+    if (!exportingVideo || allFaceUris.length === 0) return;
+    setPreviewIndex(0);
+    const id = setInterval(() => {
+      setPreviewIndex((i) => (i + 1) % allFaceUris.length);
+    }, PREVIEW_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [exportingVideo, allFaceUris.length]);
 
   const handleExportImages = useCallback(async () => {
     const uris = new Set<string>();
@@ -55,8 +70,54 @@ export function GameOverScreen({ strikes, totalFaces, allFaceUris, onPlayAgain }
     }
   }, [strikes]);
 
+  const handleExportVideo = useCallback(async () => {
+    if (allFaceUris.length === 0) return;
+    console.log('[GameOver] Export video: start, allFaceUris.length=', allFaceUris.length);
+    setExportingVideo(true);
+    try {
+      console.log('[GameOver] Export video: requesting permission...');
+      const { status } = await MediaLibrary.requestPermissionsAsync(true);
+      console.log('[GameOver] Export video: permission status=', status);
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Photo library access is needed to save the video.');
+        return;
+      }
+      console.log('[GameOver] Export video: calling imagesToVideo...');
+      const videoUri = await imagesToVideo(
+        allFaceUris,
+        undefined,
+        undefined,
+        require('../../assets/vaporwave.mp3')
+      );
+      console.log('[GameOver] Export video: imagesToVideo done, videoUri=', videoUri);
+      console.log('[GameOver] Export video: saving to MediaLibrary...');
+      await MediaLibrary.saveToLibraryAsync(videoUri);
+      console.log('[GameOver] Export video: save complete');
+      Alert.alert('Export Complete', 'Video saved to your photo library.');
+    } catch (err) {
+      console.error('[GameOver] Video export error:', err);
+      Alert.alert('Video Export Failed', 'Could not create or save the video.');
+    } finally {
+      setExportingVideo(false);
+      console.log('[GameOver] Export video: done (success or error)');
+    }
+  }, [allFaceUris]);
+
+  const canExportVideo = allFaceUris.length > 0;
+
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
+    <View style={styles.wrapper}>
+      {exportingVideo && allFaceUris.length > 0 && (
+        <View style={styles.previewOverlay}>
+          <Image
+            source={{ uri: allFaceUris[previewIndex] }}
+            style={styles.previewImage}
+            resizeMode="cover"
+          />
+          <Text style={styles.previewLabel}>Rendering video...</Text>
+        </View>
+      )}
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
       <Text style={styles.title}>Game Over</Text>
       <Text style={styles.subtitle}>{totalFaces} unique faces in this run</Text>
 
@@ -94,16 +155,45 @@ export function GameOverScreen({ strikes, totalFaces, allFaceUris, onPlayAgain }
         <Text style={styles.buttonText}>{exporting ? 'Exporting...' : 'Export images'}</Text>
       </TouchableOpacity>
 
+      <TouchableOpacity
+        style={[styles.button, styles.exportButton, !canExportVideo && styles.buttonDisabled]}
+        onPress={handleExportVideo}
+        disabled={!canExportVideo || exportingVideo}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.buttonText}>{exportingVideo ? 'Exporting video...' : 'Export video'}</Text>
+      </TouchableOpacity>
+
       <TouchableOpacity style={styles.button} onPress={onPlayAgain} activeOpacity={0.8}>
         <Text style={styles.buttonText}>Play again!</Text>
       </TouchableOpacity>
     </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  wrapper: { flex: 1 },
   scroll: { flex: 1, backgroundColor: '#fff' },
   container: { alignItems: 'center', padding: 24, paddingBottom: 48 },
+  previewOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#000',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+  },
+  previewLabel: {
+    position: 'absolute',
+    bottom: 48,
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+  },
   title: { fontSize: 36, fontWeight: 'bold', color: '#c00', marginBottom: 4 },
   subtitle: { fontSize: 20, color: '#666', marginBottom: 24 },
   strikesList: { width: '100%', marginBottom: 32 },
@@ -126,5 +216,6 @@ const styles = StyleSheet.create({
   singleImage: { width: 120, height: 120, borderRadius: 8, marginTop: 4 },
   button: { backgroundColor: '#000', paddingHorizontal: 48, paddingVertical: 16, borderRadius: 12, width: '100%', alignItems: 'center', marginBottom: 12 },
   exportButton: { backgroundColor: '#444' },
+  buttonDisabled: { opacity: 0.5 },
   buttonText: { color: '#fff', fontSize: 18, fontWeight: '600' },
 });

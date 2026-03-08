@@ -18,6 +18,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { extractBlendshapes, getInterOcularDistance } from '../services/BlendshapeService';
+import { CAPTURE_MAX_WIDTH } from '../utils/constants';
 import { saveFace, clearStoredFaces } from '../services/StorageService';
 
 export function BaselineCaptureScreen() {
@@ -46,7 +47,8 @@ export function BaselineCaptureScreen() {
     setDebugImageUri(null);
 
     try {
-      const photo = await cameraRef.current.takePictureAsync({ quality: 0.9, base64: false });
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.9, base64: false, shutterSound: false });
+      if (photo?.uri) console.log('[321FACE] Captured photo dimensions:', photo.width, 'x', photo.height);
       if (!photo?.uri) {
         setLoading(false);
         return;
@@ -58,15 +60,34 @@ export function BaselineCaptureScreen() {
         return;
       }
 
-      const permPath = `${docDir}face_baseline_${Date.now()}.jpg`;
-      const flipped = await ImageManipulator.manipulateAsync(
+      const ts = Date.now();
+      const tempLargePath = `${docDir}face_baseline_temp_large_${ts}.jpg`;
+      const permPath = `${docDir}face_baseline_${ts}.jpg`;
+
+      // 1. Flip full-size → temp (for blendshape extraction)
+      const flippedFull = await ImageManipulator.manipulateAsync(
         photo.uri,
         [{ flip: ImageManipulator.FlipType.Horizontal }],
         { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
       );
-      await FileSystem.copyAsync({ from: flipped.uri, to: permPath });
+      await FileSystem.copyAsync({ from: flippedFull.uri, to: tempLargePath });
 
-      const result = await extractBlendshapes(permPath);
+      // 2. Create smaller permanent copy for storage
+      if (photo.width > CAPTURE_MAX_WIDTH) {
+        const resized = await ImageManipulator.manipulateAsync(
+          tempLargePath,
+          [{ resize: { width: CAPTURE_MAX_WIDTH } }],
+          { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
+        );
+        await FileSystem.copyAsync({ from: resized.uri, to: permPath });
+      } else {
+        await FileSystem.copyAsync({ from: tempLargePath, to: permPath });
+      }
+
+      // 3. Extract blendshapes from full-size image
+      const result = await extractBlendshapes(tempLargePath);
+
+      await FileSystem.deleteAsync(tempLargePath, { idempotent: true });
 
       if (!result) {
         setDebugImageUri(permPath);

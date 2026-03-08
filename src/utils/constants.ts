@@ -2,6 +2,9 @@
  * Game and comparison configuration
  */
 
+/** Max width for saved capture images (height scales to maintain aspect ratio). Smaller = faster export. Default 1080. */
+export const CAPTURE_MAX_WIDTH = 1080;
+
 export const GAME_CONFIG = {
   MAX_STRIKES: 3,
   TILT_THRESHOLD_DEGREES: 15,

@@ -1,5 +1,7 @@
 package expo.modules.ffmpeglocal
 
+import com.arthenica.ffmpegkit.FFmpegKit
+import com.arthenica.ffmpegkit.ReturnCode
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.net.URL
@@ -34,6 +36,12 @@ class ExpoFfmpegLocalModule : Module() {
       sendEvent("onChange", mapOf(
         "value" to value
       ))
+    }
+
+    // Run an FFmpeg command. Returns true if the session succeeded.
+    AsyncFunction("executeAsync") { command: String ->
+      val session = FFmpegKit.execute(command)
+      ReturnCode.isSuccess(session.returnCode)
     }
 
     // Enables the module to be used as a native view. Definition components that are accepted as part of

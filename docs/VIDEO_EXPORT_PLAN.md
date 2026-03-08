@@ -1,48 +1,54 @@
 # Video Export Plan (321FACE)
 
-Use `@sheehanmunim/react-native-ffmpeg` to export a run as a slideshow-style video.
+Export a run as a slideshow-style video using FFmpeg via a **local Expo module** that bundles the ffmpeg-kit-full-gpl binary.
 
 ---
 
-## 1. Install & Verify
+## 1. FFmpeg Setup: Local Module (Self-Bundled)
 
-**Do not use `ffmpeg-kit-react-native`.** Use the **@sheehanmunim/react-native-ffmpeg** fork, which includes the necessary `.aar` (Android) and `.xcframework` (iOS) files so you don't have to fetch them from the now-dead Maven repositories.
+**Do not use `ffmpeg-kit-react-native`.** The official ffmpeg-kit binaries were removed from Maven (only 4KB metadata shells remain). This project uses a **local Expo module** with a manually bundled Fat AAR.
 
-### 1.1 Install the packages
+### 1.1 Manually Bundle the "Ghost" Dependency
 
-```bash
-# 1. Install the fork and file-system
-npx expo install @sheehanmunim/react-native-ffmpeg expo-file-system
+- Obtain a Fat AAR (~40MB) containing C++ libraries for multiple CPU architectures (ffmpeg-kit-full-gpl).
+- Place it at `modules/expo-ffmpeg-local/android/libs/ffmpeg-kit-full-gpl.aar`.
+- This locks the binary into the local filesystem instead of relying on dead Maven repositories.
 
-# 2. Install the configuration plugin to bridge the gap
-npx expo install @spreen/ffmpeg-kit-react-native-config
-```
+### 1.2 Local Expo Module Structure
 
-### 1.2 Configure app.json (or app.config.js)
+The `modules/expo-ffmpeg-local` module acts as a protected container for:
+- Native Kotlin (Android) / Swift (iOS) code that wraps FFmpegKit
+- The FFmpeg binary (`.aar` on Android, `.xcframework` on iOS)
+- Stays in the Managed Workflow while providing Bare Workflow power
 
-Add the FFmpeg config plugin so the Expo build process (EAS) uses the "full-gpl" package, which includes the codecs necessary for H.264 video export:
+**Android** (`modules/expo-ffmpeg-local/android/build.gradle`):
+- `flatDir { dirs 'libs' }` so Gradle finds the local AAR
+- `implementation(name: 'ffmpeg-kit-full-gpl', ext: 'aar')` to link the binary
+- `implementation("com.arthenica:smart-exception-java:0.2.1")` — FFmpeg expects these Java helpers
+- `JavaVersion.VERSION_17` and `jvmTarget = '17'` to match the 2026 Expo ecosystem
 
-```json
-{
-  "expo": {
-    "plugins": [
-      [
-        "@spreen/ffmpeg-kit-react-native-config",
-        {
-          "package": "full-gpl",
-          "android": { "package": "full-gpl" },
-          "ios": { "package": "full-gpl" }
-        }
-      ]
-    ]
+### 1.3 Gradle Scoping (Root build.gradle)
+
+The main app must know where to find the `.aar` during assembly. Add to `android/build.gradle`:
+
+```gradle
+allprojects {
+  repositories {
+    // ... existing repos ...
+    flatDir {
+      dirs "$rootDir/../modules/expo-ffmpeg-local/android/libs"
+    }
   }
 }
 ```
 
-### 1.3 Verify
+### 1.4 JVM Synchronization
 
-- Build with `npx expo run:android` / `npx expo run:ios`
-- Prebuild: run `npx expo prebuild` if needed
+Force the local module to use Java 17 so Kotlin/Java compilers align with the rest of the Expo 2026 ecosystem.
+
+### 1.5 Next: Expose FFmpeg to JavaScript
+
+The module scaffold exists; add an `AsyncFunction` that wraps `FFmpegKit.execute()` so the app can run FFmpeg commands from JS. The VideoExportService will call this.
 
 ---
 
@@ -121,10 +127,13 @@ src/services/VideoExportService.ts
 
 ### Skeleton
 
+Uses the local `ExpoFfmpegLocal` module (which wraps FFmpegKit from the bundled AAR):
+
 ```typescript
-import FFmpegKit from '@sheehanmunim/react-native-ffmpeg';
+import { requireNativeModule } from 'expo-modules-core';
 import * as FileSystem from 'expo-file-system';
 
+const FFmpeg = requireNativeModule('ExpoFfmpegLocal');
 const DEFAULT_DURATION = 2; // seconds per image
 
 function toFfmpegPath(uri: string): string {
@@ -153,17 +162,19 @@ export async function imagesToVideo(
   await FileSystem.writeAsStringAsync(listPath, lines.join('\n'));
 
   const cmd = `-f concat -safe 0 -i ${toFfmpegPath(listPath)} -c:v libx264 -pix_fmt yuv420p -r 15 ${outputPath}`;
-  const session = await FFmpegKit.execute(cmd);
+  const success = await FFmpeg.executeAsync(cmd);
 
   await FileSystem.deleteAsync(listPath, { idempotent: true });
 
-  if (!session.getReturnCode().isValueSuccess()) {
-    throw new Error('FFmpeg failed: ' + session.getFailStackTrace());
+  if (!success) {
+    throw new Error('FFmpeg failed');
   }
 
   return outputPath;
 }
 ```
+
+**Note:** The local module must expose `executeAsync(command: string): Promise<boolean>` that wraps `FFmpegKit.execute()` and returns whether the session succeeded.
 
 ---
 
@@ -217,7 +228,7 @@ allFaceUris: string[];  // baseline + passed + strike faces in order
 
 ## 8. Implementation Order
 
-1. Install @sheehanmunim/react-native-ffmpeg, @spreen/ffmpeg-kit-react-native-config, expo-file-system; add plugin to app.json; verify build
+1. Complete local module: add `executeAsync(command)` to ExpoFfmpegLocalModule (wraps FFmpegKit.execute); verify build
 2. Create `VideoExportService.ts` with `imagesToVideo`
 3. Update GameScreen: build `allFaceUris` before game over, pass to GameOverScreen, defer `clearStoredFaces()` to `handlePlayAgain`
 4. Add “Export video” to GameOverScreen; disable when `allFaceUris` is empty
