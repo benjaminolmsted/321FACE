@@ -32,11 +32,11 @@ export function StrikeScreen({
   const isZoom = reason === 'zoom';
 
   const subtitle =
-    isTilt ? 'Face too tilted' : isZoom ? 'Face too close or far' : 'Similar Faces Detected';
+    isTilt ? 'Face too tilted' : isZoom ? 'Face too close or far' : 'Same face detected';
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
-      <Text style={styles.title}>{isTilt ? 'TILT!!!' : isZoom ? 'ZOOM!!!' : 'Strike!'}</Text>
+      <Text style={styles.title}>{isTilt ? 'TILT!!!' : isZoom ? 'ZOOM!!!' : 'SAME!!!'}</Text>
       <Text style={styles.subtitle}>{subtitle}</Text>
       <Text style={styles.strikes}>Strikes: {strikes} / {maxStrikes}</Text>
 

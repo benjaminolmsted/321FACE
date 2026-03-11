@@ -19,15 +19,18 @@ export type BaselinePhaseData =
   | { kind: 'flash'; displayUri: string; processing: Promise<BaselineProcessResult> }
   | { kind: 'error'; message: string; debugImageUri?: string };
 
+export type GameStyle = '321face' | 'snap';
+
 export type GameParams = {
   playMode: boolean;
   blendshapeThreshold: number;
   maxStrikes: number;
   countdownMs: number;
+  gameStyle: GameStyle;
 };
 
 export type GamePhaseData =
-  | { kind: 'resultFlash'; imageUri: string; label: 'TILT' | 'ZOOM' | 'STRIKE' | null; strike: boolean; pendingGameOver: boolean; tempPathToCleanup: string }
+  | { kind: 'resultFlash'; imageUri: string; label: 'TILT' | 'ZOOM' | 'SAME' | null; strike: boolean; pendingGameOver: boolean; tempPathToCleanup: string }
   | { kind: 'strike'; strikeHistory: StrikeDetail[]; strikes: number }
   | { kind: 'debug'; captureData: unknown }
   | { kind: 'gameOver'; allFaceUris: string[]; strikeHistory: StrikeDetail[]; totalFaces: number };
@@ -50,7 +53,8 @@ export type FlowPhase =
 export function buildGameParams(
   mode: PlayMode,
   countdownMs: number,
-  isDebug: boolean
+  isDebug: boolean,
+  gameStyle: GameStyle
 ): GameParams {
   const config = PLAY_MODE_CONFIG[mode];
   return {
@@ -58,6 +62,7 @@ export function buildGameParams(
     blendshapeThreshold: isDebug ? 0.3 : config.blendshapeThreshold,
     maxStrikes: isDebug ? 3 : config.maxStrikes,
     countdownMs,
+    gameStyle,
   };
 }
 

@@ -14,7 +14,7 @@ export const GAME_CONFIG = {
 export const PLAY_MODE_CONFIG = {
   subtle: { blendshapeThreshold: 0.175, maxStrikes: 3 },
   balanced: { blendshapeThreshold: 0.3, maxStrikes: 2 },
-  extreme: { blendshapeThreshold: 0.9, maxStrikes: 1 },
+  extreme: { blendshapeThreshold: 0.85, maxStrikes: 1 },
 } as const;
 
 export const COMPARISON_STRATEGIES: readonly string[] = [];
@@ -22,8 +22,8 @@ export type ComparisonStrategyType = 'contour' | 'embedding';
 
 export const BLENDSHAPE_DISTANCE_THRESHOLD = 0.225;
 
-/** Strike if inter-ocular distance differs from baseline by more than this fraction (e.g. 0.10 = 10%) */
-export const INTER_OCULAR_ZOOM_THRESHOLD = 0.1;
+/** Strike if inter-ocular distance differs from baseline by more than this fraction (e.g. 0.13 = 13%) */
+export const INTER_OCULAR_ZOOM_THRESHOLD = 0.13;
 
 export const FACE_NET_SIMILARITY_THRESHOLD = 0.65;
 

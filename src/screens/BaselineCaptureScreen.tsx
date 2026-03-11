@@ -184,6 +184,8 @@ export function BaselineCaptureScreen({ flowPhase, advance }: Props) {
               sourceImageHeight={flashResult.sourceImageHeight}
               previewScaleMode="fill"
               mirror={false}
+              stroke="#e6c44d"
+              strokeWidth={3}
             />
           )}
         </View>

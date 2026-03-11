@@ -50,6 +50,7 @@ export function GameScreen({ flowPhase, advance }: Props) {
   const blendshapeThreshold = gameParams.blendshapeThreshold;
   const maxStrikes = gameParams.maxStrikes;
   const countdownMs = gameParams.countdownMs;
+  const gameStyle = gameParams.gameStyle ?? '321face';
 
   const goBack = useCallback(() => {
     advance({ screen: 'baseline', phase: 'capture', gameParams });
@@ -63,7 +64,7 @@ export function GameScreen({ flowPhase, advance }: Props) {
   const [captureData, setCaptureData] = useState<CaptureData | null>(null);
   const [resultFlash, setResultFlash] = useState<{
     imageUri: string;
-    label: 'TILT' | 'ZOOM' | 'STRIKE' | null;
+    label: 'TILT' | 'ZOOM' | 'SAME' | null;
     resultsReady: boolean;
     pendingGameOver?: boolean;
     /** Temp full-size file to delete when flash is cleared */
@@ -276,7 +277,7 @@ export function GameScreen({ flowPhase, advance }: Props) {
       });
 
       if (isPlayMode) {
-        const flashLabel = strike ? (result.reason === 'tilt' ? 'TILT' : result.reason === 'zoom' ? 'ZOOM' : 'STRIKE') : null;
+        const flashLabel = strike ? (result.reason === 'tilt' ? 'TILT' : result.reason === 'zoom' ? 'ZOOM' : 'SAME') : null;
         if (strike) {
           const newStrikes = strikesRef.current + 1;
           const reason = result.reason ?? 'similar';
@@ -460,7 +461,6 @@ export function GameScreen({ flowPhase, advance }: Props) {
   }
 
   const showCameraUI = (cameraReady || baselineImageUri) && (gameState === 'playing' || gameState === 'processing' || !!resultFlash);
-  const showFaceOval = playMode && baselineLandmarks && overlaySize.width > 0 && phase !== null;
 
   return (
     <View style={styles.container}>
@@ -483,11 +483,17 @@ export function GameScreen({ flowPhase, advance }: Props) {
               <Text style={styles.roundText}>Round {roundIndex + 1}</Text>
               <Text style={styles.strikesText}>Strikes: {strikes} / {maxStrikes}</Text>
             </View>
-            {label && countdownMs >= 200 && (
-              <View style={styles.countdownBox}>
-                <Text style={styles.countdownText}>{label}</Text>
-              </View>
-            )}
+            {(() => {
+              const displayLabel = gameStyle === 'snap' ? (phase === 3 ? 'SNAP' : '') : label;
+              return displayLabel ? (
+                <View style={styles.countdownBox}>
+                  <View style={styles.countdownTextContainer}>
+                    <Text style={[styles.countdownText, styles.countdownTextShadow]}>{displayLabel}</Text>
+                    <Text style={styles.countdownText}>{displayLabel}</Text>
+                  </View>
+                </View>
+              ) : null;
+            })()}
           </View>
         </View>
       )}
@@ -499,19 +505,13 @@ export function GameScreen({ flowPhase, advance }: Props) {
             style={styles.resultFlashImage}
             resizeMode="cover"
           />
-          {baselineLandmarks && overlaySize.width > 0 && baselineSourceSize && (
-            <FaceOvalOverlay
-              landmarks={baselineLandmarks}
-              width={overlaySize.width}
-              height={overlaySize.height}
-              sourceImageWidth={baselineSourceSize.width}
-              sourceImageHeight={baselineSourceSize.height}
-              previewScaleMode="fill"
-              mirror={false}
-            />
-          )}
           {resultFlash.label && (
-            <Text style={styles.resultFlashText}>{resultFlash.label}</Text>
+            <View style={styles.resultFlashLabelContainer}>
+              <View style={styles.resultFlashTextWrapper}>
+                <Text style={[styles.resultFlashText, styles.resultFlashTextShadow]}>{resultFlash.label}</Text>
+                <Text style={styles.resultFlashText}>{resultFlash.label}</Text>
+              </View>
+            </View>
           )}
         </View>
       )}
@@ -525,15 +525,17 @@ export function GameScreen({ flowPhase, advance }: Props) {
             setOverlaySize({ width, height });
           }}
         >
-          {baselineLandmarks && overlaySize.width > 0 && (showFaceOval || !playMode) && !resultFlash && (
+          {label && baselineLandmarks && overlaySize.width > 0 && baselineSourceSize && !resultFlash && (
             <FaceOvalOverlay
               landmarks={baselineLandmarks}
               width={overlaySize.width}
               height={overlaySize.height}
-              sourceImageWidth={baselineSourceSize?.width}
-              sourceImageHeight={baselineSourceSize?.height}
+              sourceImageWidth={baselineSourceSize.width}
+              sourceImageHeight={baselineSourceSize.height}
               previewScaleMode="fill"
               mirror={false}
+              stroke="#e6c44d"
+              strokeWidth={3}
             />
           )}
           <TouchableOpacity style={styles.backBtn} onPress={goBack}>
@@ -545,11 +547,17 @@ export function GameScreen({ flowPhase, advance }: Props) {
               Strikes: {strikes} / {maxStrikes}
             </Text>
           </View>
-          {label && !resultFlash && countdownMs >= 200 && (
-            <View style={styles.countdownBox}>
-              <Text style={styles.countdownText}>{label}</Text>
-            </View>
-          )}
+          {(() => {
+            const displayLabel = gameStyle === 'snap' ? (phase === 3 ? 'SNAP' : '') : label;
+            return displayLabel && !resultFlash ? (
+              <View style={styles.countdownBox}>
+                <View style={styles.countdownTextContainer}>
+                  <Text style={[styles.countdownText, styles.countdownTextShadow]}>{displayLabel}</Text>
+                  <Text style={styles.countdownText}>{displayLabel}</Text>
+                </View>
+              </View>
+            ) : null;
+          })()}
           <View style={styles.bottomBar}>
             {gameState === 'processing' && !playMode ? (
               <ActivityIndicator size="large" color="#fff" />
@@ -640,14 +648,30 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  resultFlashText: {
+  resultFlashLabelContainer: {
     position: 'absolute',
-    fontSize: 48,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  resultFlashTextWrapper: {
+    position: 'relative',
+    alignItems: 'center',
+  },
+  resultFlashText: {
+    fontSize: 96,
     fontWeight: 'bold',
+    letterSpacing: 2,
     color: '#c00',
-    textShadowColor: 'rgba(0,0,0,0.8)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
+  },
+  resultFlashTextShadow: {
+    position: 'absolute',
+    top: 3,
+    left: 3,
+    color: 'rgba(0,0,0,0.5)',
   },
   backBtn: { position: 'absolute', top: 48, left: 16, zIndex: 10 },
   backBtnText: { color: '#fff', fontSize: 18, fontWeight: '600' },
@@ -672,11 +696,27 @@ const styles = StyleSheet.create({
   benchmarkText: { color: '#fff', fontSize: 11 },
   countdownBox: {
     position: 'absolute',
-    top: '40%',
+    top: 0,
     left: 0,
     right: 0,
+    bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  countdownText: { color: '#fff', fontSize: 64, fontWeight: 'bold' },
+  countdownTextContainer: {
+    position: 'relative',
+    alignItems: 'center',
+  },
+  countdownText: {
+    fontSize: 96,
+    color: '#e6c44d',
+    fontWeight: 'bold',
+    letterSpacing: 2,
+  },
+  countdownTextShadow: {
+    position: 'absolute',
+    top: 3,
+    left: 3,
+    color: 'rgba(0,0,0,0.5)',
+  },
 });

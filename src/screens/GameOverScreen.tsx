@@ -145,7 +145,7 @@ export function GameOverScreen({ strikes, totalFaces, allFaceUris, onPlayAgain }
       <View style={styles.strikesList}>
         {strikes.map((strike, i) => (
           <View key={i} style={styles.strikeCard}>
-            <Text style={styles.strikeLabel}>Strike {i + 1}: {strike.type.toUpperCase()}</Text>
+            <Text style={styles.strikeLabel}>Strike {i + 1}: {strike.type === 'similar' ? 'SAME' : strike.type.toUpperCase()}</Text>
             {strike.type === 'tilt' && <Text style={styles.contentSubtext}>Face too tilted</Text>}
             {strike.type === 'zoom' && <Text style={styles.contentSubtext}>Face too close or far</Text>}
             {(strike.type === 'similar' || strike.type === 'tilt' || strike.type === 'zoom') && strike.previousImageUri ? (

@@ -71,6 +71,8 @@
         }
       ],
       "./plugins/withMediaPipeAssets",
+      "./plugins/withAsyncStorageMaven",
+      "./plugins/withFfmpegFlatDir",
       "./plugins/withDebugAppName",
       "./plugins/withDebugApplicationId"
     ],

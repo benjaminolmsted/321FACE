@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 export const COUNTDOWN_TOTAL_MS_DEFAULT = 1250;
-export const COUNTDOWN_LABELS = ['3...', '2..', '1.', 'FACE'] as const;
+export const COUNTDOWN_LABELS = ['3', '2', '1', 'FACE'] as const;
 export type CountdownPhase = 0 | 1 | 2 | 3 | null;
 
 type Callbacks = {
