@@ -105,15 +105,36 @@ export function GameOverScreen({ strikes, totalFaces, allFaceUris, onPlayAgain }
 
   const canExportVideo = allFaceUris.length > 0;
 
+  const uriToFrame = Object.fromEntries(allFaceUris.map((uri, i) => [uri, i + 1]));
+
+  const ImageWithBadge = ({ uri, style }: { uri: string; style?: object }) => {
+    const frame = uriToFrame[uri];
+    return (
+      <View style={styles.imageWithBadge}>
+        <Image source={{ uri }} style={style ?? styles.faceImage} resizeMode="cover" />
+        {frame != null && (
+          <View style={styles.frameBadge}>
+            <Text style={styles.frameBadgeText}>{frame}</Text>
+          </View>
+        )}
+      </View>
+    );
+  };
+
   return (
     <View style={styles.wrapper}>
       {exportingVideo && allFaceUris.length > 0 && (
         <View style={styles.previewOverlay}>
-          <Image
-            source={{ uri: allFaceUris[previewIndex] }}
-            style={styles.previewImage}
-            resizeMode="cover"
-          />
+          <View style={styles.previewImageWrapper}>
+            <Image
+              source={{ uri: allFaceUris[previewIndex] }}
+              style={styles.previewImage}
+              resizeMode="cover"
+            />
+            <View style={styles.previewFrameBadge}>
+              <Text style={styles.frameBadgeText}>{previewIndex + 1}</Text>
+            </View>
+          </View>
           <Text style={styles.previewLabel}>Rendering video...</Text>
         </View>
       )}
@@ -133,15 +154,15 @@ export function GameOverScreen({ strikes, totalFaces, allFaceUris, onPlayAgain }
                   <Text style={styles.imageLabel}>
                     {strike.type === 'similar' ? 'Previous' : 'Baseline'}
                   </Text>
-                  <Image source={{ uri: strike.previousImageUri }} style={styles.faceImage} resizeMode="cover" />
+                  <ImageWithBadge uri={strike.previousImageUri} />
                 </View>
                 <View style={styles.imageSlot}>
                   <Text style={styles.imageLabel}>Striking</Text>
-                  <Image source={{ uri: strike.currentImageUri }} style={styles.faceImage} resizeMode="cover" />
+                  <ImageWithBadge uri={strike.currentImageUri} />
                 </View>
               </View>
             ) : (
-              <Image source={{ uri: strike.currentImageUri }} style={styles.singleImage} resizeMode="cover" />
+              <ImageWithBadge uri={strike.currentImageUri} style={styles.singleImage} />
             )}
           </View>
         ))}
@@ -183,9 +204,26 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     zIndex: 10,
   },
+  previewImageWrapper: {
+    width: '100%',
+    height: '100%',
+    position: 'relative',
+  },
   previewImage: {
     width: '100%',
     height: '100%',
+  },
+  previewFrameBadge: {
+    position: 'absolute',
+    top: 48,
+    left: 24,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    borderRadius: 12,
+    minWidth: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
   },
   previewLabel: {
     position: 'absolute',
@@ -209,7 +247,25 @@ const styles = StyleSheet.create({
   similarRow: { flexDirection: 'row', gap: 16, justifyContent: 'center' },
   imageSlot: { alignItems: 'center' },
   imageLabel: { fontSize: 12, color: '#666', marginBottom: 4 },
+  imageWithBadge: { position: 'relative' },
   faceImage: { width: 100, height: 100, borderRadius: 8 },
+  frameBadge: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+  },
+  frameBadgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   contentBox: { alignItems: 'center' },
   contentText: { fontSize: 18, fontWeight: 'bold', color: '#c00' },
   contentSubtext: { fontSize: 14, color: '#666', marginBottom: 8 },

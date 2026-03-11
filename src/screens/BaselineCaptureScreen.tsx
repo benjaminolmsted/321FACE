@@ -1,134 +1,140 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigation, useRoute } from '@react-navigation/native';
-import type { PlayMode } from './HomeScreen';
-
-const BLENDSHAPE_THRESHOLDS: Record<PlayMode, number> = {
-  subtle: 0.175,
-  balanced: 0.3,
-  extreme: 0.9,
-};
-
-const MAX_STRIKES_BY_MODE: Record<PlayMode, number> = {
-  subtle: 3,
-  balanced: 2,
-  extreme: 1,
-};
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as FileSystem from 'expo-file-system/legacy';
-import * as ImageManipulator from 'expo-image-manipulator';
-import { extractBlendshapes, getInterOcularDistance } from '../services/BlendshapeService';
-import { CAPTURE_MAX_WIDTH } from '../utils/constants';
-import { saveFace, clearStoredFaces } from '../services/StorageService';
+import { FaceOvalOverlay } from '../components/FaceOvalOverlay';
+import {
+  flipBaselineForDisplay,
+  processBaselineFromTemp,
+} from '../services/BaselineCaptureService';
+import { clearStoredFaces } from '../services/StorageService';
+import { useCamera } from '../context/CameraContext';
+import type { FlowPhase } from '../context/FlowContext';
 
-export function BaselineCaptureScreen() {
-  const navigation = useNavigation();
-  const route = useRoute();
-  const params = (route.params as { mode?: PlayMode; debug?: boolean } | undefined) ?? {};
-  const isDebug = params.debug === true;
-  const mode = params.mode ?? 'balanced';
-  const goBack = useCallback(() => navigation.goBack(), [navigation]);
-  const [permission, requestPermission] = useCameraPermissions();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  /** Image URI passed to MediaPipe when detection fails (for debugging) */
-  const [debugImageUri, setDebugImageUri] = useState<string | null>(null);
+const BASELINE_FLASH_DELAY_MS = 500; // Delay after oval appears before advancing
 
-  const cameraRef = useRef<CameraView>(null);
+type Props = {
+  flowPhase: Extract<FlowPhase, { screen: 'baseline' }>;
+  advance: (next: FlowPhase) => void;
+};
+
+export function BaselineCaptureScreen({ flowPhase, advance }: Props) {
+  const { phase, gameParams } = flowPhase;
+  const goBack = useCallback(() => advance({ screen: 'home' }), [advance]);
+  const { cameraRef, cameraReady, permission, requestPermission } = useCamera();
+  const [capturing, setCapturing] = useState(false);
+  const [flashResult, setFlashResult] = useState<{
+    faceLandmarks: { x: number; y: number; z: number }[];
+    sourceImageWidth: number;
+    sourceImageHeight: number;
+  } | null>(null);
+  const [flashOverlaySize, setFlashOverlaySize] = useState({ width: 0, height: 0 });
+
+  const error = phase === 'error' && flowPhase.data?.kind === 'error' ? flowPhase.data : null;
+  const displayUri = phase === 'flash' && flowPhase.data?.kind === 'flash' ? flowPhase.data.displayUri : null;
 
   useEffect(() => {
     clearStoredFaces();
   }, []);
 
+  useEffect(() => {
+    if (phase === 'error') setCapturing(false);
+  }, [phase]);
+
+  // Reset flash result when leaving flash phase
+  useEffect(() => {
+    if (phase !== 'flash') setFlashResult(null);
+  }, [phase]);
+
+  // Phase handler: baseline.flash → await processing, show oval, then 500ms later advance
+  useEffect(() => {
+    if (phase !== 'flash' || flowPhase.data?.kind !== 'flash') return;
+    const { displayUri: path, processing } = flowPhase.data;
+
+    let cancelled = false;
+    (async () => {
+      const result = await processing;
+      if (cancelled) return;
+      if (!result.ok) {
+        await FileSystem.deleteAsync(path, { idempotent: true });
+        advance({
+          screen: 'baseline',
+          phase: 'error',
+          data: { kind: 'error', message: 'No face detected. Try again.', debugImageUri: result.debugImageUri },
+          gameParams,
+        });
+        return;
+      }
+      setFlashResult({
+        faceLandmarks: result.faceLandmarks,
+        sourceImageWidth: result.sourceImageWidth,
+        sourceImageHeight: result.sourceImageHeight,
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [phase, flowPhase.data, gameParams, advance]);
+
+  // 500ms after oval is visible, advance to game
+  useEffect(() => {
+    if (phase !== 'flash' || flowPhase.data?.kind !== 'flash' || !flashResult || flashOverlaySize.width === 0) return;
+
+    const id = setTimeout(() => {
+      const path = flowPhase.data.kind === 'flash' ? flowPhase.data.displayUri : null;
+      if (!path) return;
+      advance({
+        screen: 'gameLoading',
+        data: {
+          imageUri: path,
+          gameParams,
+          faceLandmarks: flashResult.faceLandmarks,
+          sourceImageWidth: flashResult.sourceImageWidth,
+          sourceImageHeight: flashResult.sourceImageHeight,
+        },
+      });
+    }, BASELINE_FLASH_DELAY_MS);
+
+    return () => clearTimeout(id);
+  }, [phase, flowPhase.data, flashResult, flashOverlaySize, gameParams, advance]);
+
   const doCapture = useCallback(async () => {
     if (!cameraRef.current) return;
-    setLoading(true);
-    setError(null);
-    setDebugImageUri(null);
+    setCapturing(true);
 
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.9, base64: false, shutterSound: false });
-      if (photo?.uri) console.log('[321FACE] Captured photo dimensions:', photo.width, 'x', photo.height);
-      if (!photo?.uri) {
-        setLoading(false);
-        return;
-      }
+      if (!photo?.uri) return;
 
-      const docDir = FileSystem.documentDirectory;
-      if (!docDir) {
-        setLoading(false);
-        return;
-      }
+      console.log('[321FACE] Baseline capture:', photo.width, 'x', photo.height);
 
-      const ts = Date.now();
-      const tempLargePath = `${docDir}face_baseline_temp_large_${ts}.jpg`;
-      const permPath = `${docDir}face_baseline_${ts}.jpg`;
+      const { flippedPath } = await flipBaselineForDisplay(photo.uri);
+      const processing = processBaselineFromTemp(flippedPath, photo.width);
 
-      // 1. Flip full-size → temp (for blendshape extraction)
-      const flippedFull = await ImageManipulator.manipulateAsync(
-        photo.uri,
-        [{ flip: ImageManipulator.FlipType.Horizontal }],
-        { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
-      );
-      await FileSystem.copyAsync({ from: flippedFull.uri, to: tempLargePath });
-
-      // 2. Create smaller permanent copy for storage
-      if (photo.width > CAPTURE_MAX_WIDTH) {
-        const resized = await ImageManipulator.manipulateAsync(
-          tempLargePath,
-          [{ resize: { width: CAPTURE_MAX_WIDTH } }],
-          { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
-        );
-        await FileSystem.copyAsync({ from: resized.uri, to: permPath });
-      } else {
-        await FileSystem.copyAsync({ from: tempLargePath, to: permPath });
-      }
-
-      // 3. Extract blendshapes from full-size image
-      const result = await extractBlendshapes(tempLargePath);
-
-      await FileSystem.deleteAsync(tempLargePath, { idempotent: true });
-
-      if (!result) {
-        setDebugImageUri(permPath);
-        setError('No face detected. Try again.');
-        setLoading(false);
-        return;
-      }
-
-      const interOcularDistance = getInterOcularDistance(result.faceLandmarks);
-
-      console.log('[321FACE] CAPTURE baseline', {
-        imageUri: permPath,
-        interOcularDistance,
-        pitchDeg: result.facePose?.pitchDeg,
-        rollDeg: result.facePose?.rollDeg,
-      });
-
-      await saveFace({
-        roundIndex: 0,
-        imageUri: permPath,
-        blendshapes: result.scores,
-        faceLandmarks: result.faceLandmarks,
-        facePose: result.facePose,
-        sourceImageWidth: result.sourceImageWidth,
-        sourceImageHeight: result.sourceImageHeight,
-        interOcularDistance: interOcularDistance || undefined,
-        timestamp: Date.now(),
-      });
-
-      (navigation as any).navigate('Game', {
-        playMode: !isDebug,
-        blendshapeThreshold: isDebug ? undefined : BLENDSHAPE_THRESHOLDS[mode],
-        maxStrikes: isDebug ? undefined : MAX_STRIKES_BY_MODE[mode],
+      advance({
+        screen: 'baseline',
+        phase: 'flash',
+        data: { kind: 'flash', displayUri: flippedPath, processing },
+        gameParams,
       });
     } catch (err) {
       console.error('[BaselineCapture] error:', err);
-      setError('Capture failed. Try again.');
-    } finally {
-      setLoading(false);
+      setCapturing(false);
+      advance({
+        screen: 'baseline',
+        phase: 'error',
+        data: { kind: 'error', message: 'Capture failed. Try again.' },
+        gameParams,
+      });
     }
-  }, [navigation]);
+  }, [gameParams, advance]);
+
+  const onRetry = useCallback(() => {
+    advance({
+      screen: 'baseline',
+      phase: 'capture',
+      gameParams,
+    });
+  }, [gameParams, advance]);
 
   if (!permission) {
     return (
@@ -154,29 +160,65 @@ export function BaselineCaptureScreen() {
 
   return (
     <View style={styles.container}>
-      <CameraView style={styles.camera} ref={cameraRef} facing="front" />
+      {displayUri && (
+        <View
+          style={styles.baselineFlashOverlay}
+          pointerEvents="none"
+          onLayout={(e) => {
+            const { width, height } = e.nativeEvent.layout;
+            setFlashOverlaySize({ width, height });
+          }}
+        >
+          <Image
+            source={{ uri: displayUri }}
+            style={styles.baselineFlashImage}
+            resizeMode="cover"
+          />
+          {!flashResult && <ActivityIndicator size="large" color="#fff" style={styles.flashSpinner} />}
+          {flashResult && flashOverlaySize.width > 0 && (
+            <FaceOvalOverlay
+              landmarks={flashResult.faceLandmarks}
+              width={flashOverlaySize.width}
+              height={flashOverlaySize.height}
+              sourceImageWidth={flashResult.sourceImageWidth}
+              sourceImageHeight={flashResult.sourceImageHeight}
+              previewScaleMode="fill"
+              mirror={false}
+            />
+          )}
+        </View>
+      )}
 
       <View style={styles.overlay} pointerEvents="box-none">
-        <TouchableOpacity style={styles.backBtn} onPress={goBack}>
-          <Text style={styles.backBtnText}>← Back</Text>
-        </TouchableOpacity>
-
+        {cameraReady && (
         <View style={styles.messageBox}>
           <Text style={styles.message}>
-            Capture the pose you want to use for this run
+            Capture the baseline pose you want to use for this run
           </Text>
+          <View style={styles.strikeLegend}>
+            <Text style={styles.strikeLegendLine}>
+              SAME <Text style={styles.strikeX}>X</Text> - face too similar to a previous face
+            </Text>
+            <Text style={styles.strikeLegendLine}>
+              TILT <Text style={styles.strikeX}>X</Text> - tilting face too much from baseline
+            </Text>
+            <Text style={styles.strikeLegendLine}>
+              ZOOM <Text style={styles.strikeX}>X</Text> - zooming face in or out too much
+            </Text>
+          </View>
         </View>
+        )}
 
         {error && (
           <ScrollView style={styles.debugScroll} contentContainerStyle={styles.debugContainer}>
             <View style={styles.errorBox}>
-              <Text style={styles.errorText}>{error}</Text>
+              <Text style={styles.errorText}>{error.message}</Text>
             </View>
-            {debugImageUri && (
+            {error.debugImageUri && (
               <View style={styles.debugImageBox}>
                 <Text style={styles.debugImageLabel}>Image passed to MediaPipe:</Text>
                 <Image
-                  source={{ uri: debugImageUri }}
+                  source={{ uri: error.debugImageUri }}
                   style={styles.debugImage}
                   resizeMode="contain"
                 />
@@ -186,13 +228,10 @@ export function BaselineCaptureScreen() {
         )}
 
         <View style={styles.bottomBar}>
-          {loading ? (
-            <ActivityIndicator size="large" color="#fff" />
-          ) : (
+          {!capturing && !displayUri && (
             <TouchableOpacity
               style={styles.captureButton}
-              onPress={doCapture}
-              disabled={loading}
+              onPress={phase === 'error' ? onRetry : doCapture}
               activeOpacity={0.8}
             />
           )}
@@ -204,22 +243,36 @@ export function BaselineCaptureScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  camera: { flex: 1 },
   overlay: { ...StyleSheet.absoluteFillObject },
+  baselineFlashOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#000',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 12,
+  },
+  baselineFlashImage: {
+    width: '100%',
+    height: '100%',
+  },
+  flashSpinner: {
+    position: 'absolute',
+  },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  backBtn: { position: 'absolute', top: 48, left: 16, zIndex: 10 },
-  backBtnText: { color: '#fff', fontSize: 18, fontWeight: '600' },
   messageBox: {
     position: 'absolute',
-    top: '30%',
-    left: 24,
-    right: 24,
+    top: 48,
+    left: 12,
+    right: 12,
     backgroundColor: 'rgba(0,0,0,0.6)',
     padding: 20,
     borderRadius: 12,
     alignItems: 'center',
   },
   message: { color: '#fff', fontSize: 18, textAlign: 'center', fontWeight: '500' },
+  strikeLegend: { marginTop: 12, alignItems: 'flex-start' },
+  strikeLegendLine: { color: '#fff', fontSize: 14, marginTop: 4 },
+  strikeX: { color: '#c00', fontSize: 22, fontWeight: '800' },
   errorBox: {
     left: 24,
     right: 24,

@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigation, useRoute } from '@react-navigation/native';
-import { ActivityIndicator, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { ActivityIndicator, Image, InteractionManager, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { extractBlendshapes, blendshapeDistance, getInterOcularDistance, type BlendshapeResult } from '../services/BlendshapeService';
@@ -13,8 +11,15 @@ import { DebugScreen, type PreviousFaceDebug } from './DebugScreen';
 import { StrikeScreen } from './StrikeScreen';
 import { GameOverScreen, type StrikeDetail } from './GameOverScreen';
 import { useCountdown3251 } from '../hooks/useCountdown3251';
+import { useCamera } from '../context/CameraContext';
+import type { FlowPhase } from '../context/FlowContext';
 
 type GameState = 'playing' | 'processing' | 'debug' | 'strike' | 'gameOver';
+
+type Props = {
+  flowPhase: Extract<FlowPhase, { screen: 'game' }> | Extract<FlowPhase, { screen: 'gameLoading' }>;
+  advance: (next: FlowPhase) => void;
+};
 
 interface CaptureEntry {
   timestamp: number;
@@ -37,18 +42,19 @@ interface CaptureData {
   previousFaces: PreviousFaceDebug[];
 }
 
-type RouteParams = { playMode?: boolean; blendshapeThreshold?: number; maxStrikes?: number };
+export function GameScreen({ flowPhase, advance }: Props) {
+  const gameParams = flowPhase.screen === 'gameLoading' ? flowPhase.data.gameParams : flowPhase.gameParams;
+  const baselineImageUri = flowPhase.screen === 'gameLoading' ? flowPhase.data.imageUri : flowPhase.baselineImageUri;
 
-export function GameScreen() {
-  const navigation = useNavigation();
-  const route = useRoute();
-  const params = (route.params as RouteParams | undefined) ?? {};
-  const playMode = params.playMode ?? false;
-  const blendshapeThreshold = params.blendshapeThreshold ?? BLENDSHAPE_DISTANCE_THRESHOLD;
-  const maxStrikes = params.maxStrikes ?? GAME_CONFIG.MAX_STRIKES;
+  const playMode = gameParams.playMode;
+  const blendshapeThreshold = gameParams.blendshapeThreshold;
+  const maxStrikes = gameParams.maxStrikes;
+  const countdownMs = gameParams.countdownMs;
 
-  const goBack = useCallback(() => navigation.goBack(), [navigation]);
-  const [permission, requestPermission] = useCameraPermissions();
+  const goBack = useCallback(() => {
+    advance({ screen: 'baseline', phase: 'capture', gameParams });
+  }, [advance, gameParams]);
+  const { cameraRef, cameraReady: cameraReadyFromContext, permission, requestPermission } = useCamera();
 
   const [gameState, setGameState] = useState<GameState>('playing');
   const [roundIndex, setRoundIndex] = useState(playMode ? 1 : 0);
@@ -68,8 +74,15 @@ export function GameScreen() {
   const [baselineSourceSize, setBaselineSourceSize] = useState<{ width: number; height: number } | null>(null);
   const [overlaySize, setOverlaySize] = useState({ width: 0, height: 0 });
   const [allFaceUris, setAllFaceUris] = useState<string[]>([]);
-  const { phase, label, start } = useCountdown3251();
-  const cameraRef = useRef<CameraView>(null);
+  const cameraReady = cameraReadyFromContext;
+  console.log('[321FACE] GameScreen render', {
+    screen: flowPhase.screen,
+    hasBaselineUri: !!baselineImageUri,
+    uriPrefix: baselineImageUri?.slice(0, 80),
+    cameraReady,
+    modalCondition: !!(baselineImageUri && !cameraReady),
+  });
+  const { phase, label, start } = useCountdown3251(countdownMs);
   const gameStateRef = useRef<GameState>('playing');
   const roundIndexRef = useRef(playMode ? 1 : 0);
   const strikesRef = useRef(0);
@@ -79,6 +92,15 @@ export function GameScreen() {
   useEffect(() => {
     if (!playMode) clearStoredFaces();
   }, [playMode]);
+
+  useEffect(() => {
+    if (cameraReady && baselineImageUri) {
+      FileSystem.deleteAsync(baselineImageUri, { idempotent: true });
+      if (flowPhase.screen === 'gameLoading') {
+        advance({ screen: 'game', phase: 'countdown', gameParams });
+      }
+    }
+  }, [cameraReady, baselineImageUri, flowPhase.screen, gameParams, advance]);
 
   // Load baseline landmarks and source size when we have previous faces (round > 0)
   useEffect(() => {
@@ -353,8 +375,8 @@ export function GameScreen() {
 
   const handlePlayAgain = useCallback(() => {
     clearStoredFaces();
-    (navigation as any).reset({ index: 0, routes: [{ name: 'Home' }] });
-  }, [navigation]);
+    advance({ screen: 'home' });
+  }, [advance]);
 
   const handleStrikeContinue = useCallback(() => {
     setCaptureData(null);
@@ -363,13 +385,12 @@ export function GameScreen() {
     if (newStrikes >= maxStrikes) {
       clearStoredFaces();
       setStrikes(0);
-      transition('playing', 0);
-      goBack();
+      advance({ screen: 'baseline', phase: 'capture', gameParams });
     } else {
       const rd = roundIndexRef.current;
       transition('playing', rd + 1);
     }
-  }, [strikes, maxStrikes, goBack]);
+  }, [strikes, maxStrikes, advance, gameParams]);
 
   // Result flash: 0.5s from when results are ready, then dismiss and allow countdown to start
   useEffect(() => {
@@ -397,24 +418,34 @@ export function GameScreen() {
     return () => clearTimeout(id);
   }, [resultFlash, strikeHistory]);
 
-  // Auto-start countdown in play mode (no manual capture)
+  // Auto-start countdown in play mode (no manual capture).
+  // Start when we have something to show: camera ready, or baseline image (while camera warms up).
+  // On first entry (round 1), also defer until after layout for full countdown visibility.
   useEffect(() => {
     if (
+      (cameraReady || baselineImageUri) &&
       playMode &&
       gameState === 'playing' &&
       phase === null &&
       roundIndex >= 1 &&
       !resultFlash
     ) {
-      start({ onFace: () => captureAndProcess(true) });
+      const run = () => start({ onFace: () => captureAndProcess(true) });
+      if (roundIndex === 1) {
+        const handle = InteractionManager.runAfterInteractions(run);
+        return () => handle.cancel();
+      }
+      run();
     }
-  }, [playMode, gameState, phase, roundIndex, resultFlash, start, captureAndProcess]);
+  }, [cameraReady, baselineImageUri, playMode, gameState, phase, roundIndex, resultFlash, start, captureAndProcess]);
 
-  if (!permission) {
+  // When we have baselineImageUri (coming from Baseline Captured), show it immediately
+  // instead of a black loading screen while permission resolves.
+  if (!permission && !baselineImageUri) {
     return <View style={styles.center}><ActivityIndicator size="large" /></View>;
   }
 
-  if (!permission.granted) {
+  if (permission && !permission.granted) {
     return (
       <View style={styles.center}>
         <Text style={styles.permissionText}>Camera permission is required</Text>
@@ -428,12 +459,38 @@ export function GameScreen() {
     );
   }
 
-  const showCameraUI = gameState === 'playing' || gameState === 'processing' || !!resultFlash;
+  const showCameraUI = (cameraReady || baselineImageUri) && (gameState === 'playing' || gameState === 'processing' || !!resultFlash);
   const showFaceOval = playMode && baselineLandmarks && overlaySize.width > 0 && phase !== null;
 
   return (
     <View style={styles.container}>
-      <CameraView style={styles.camera} ref={cameraRef} facing="front" />
+      {baselineImageUri && !cameraReady && (
+        <View style={styles.baselineWarmupOverlay} pointerEvents="box-none">
+          <Image
+            source={{
+              uri: Platform.OS === 'android' && !baselineImageUri.startsWith('file://')
+                ? `file://${baselineImageUri}`
+                : baselineImageUri,
+            }}
+            style={styles.baselineWarmupImage}
+            resizeMode="cover"
+          />
+          <View style={styles.overlay} pointerEvents="box-none">
+            <TouchableOpacity style={styles.backBtn} onPress={goBack}>
+              <Text style={styles.backBtnText}>← Back</Text>
+            </TouchableOpacity>
+            <View style={styles.topBar}>
+              <Text style={styles.roundText}>Round {roundIndex + 1}</Text>
+              <Text style={styles.strikesText}>Strikes: {strikes} / {maxStrikes}</Text>
+            </View>
+            {label && countdownMs >= 200 && (
+              <View style={styles.countdownBox}>
+                <Text style={styles.countdownText}>{label}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      )}
 
       {resultFlash && (
         <View style={styles.resultFlashOverlay} pointerEvents="none">
@@ -442,6 +499,17 @@ export function GameScreen() {
             style={styles.resultFlashImage}
             resizeMode="cover"
           />
+          {baselineLandmarks && overlaySize.width > 0 && baselineSourceSize && (
+            <FaceOvalOverlay
+              landmarks={baselineLandmarks}
+              width={overlaySize.width}
+              height={overlaySize.height}
+              sourceImageWidth={baselineSourceSize.width}
+              sourceImageHeight={baselineSourceSize.height}
+              previewScaleMode="fill"
+              mirror={false}
+            />
+          )}
           {resultFlash.label && (
             <Text style={styles.resultFlashText}>{resultFlash.label}</Text>
           )}
@@ -477,7 +545,7 @@ export function GameScreen() {
               Strikes: {strikes} / {maxStrikes}
             </Text>
           </View>
-          {label && !resultFlash && (
+          {label && !resultFlash && countdownMs >= 200 && (
             <View style={styles.countdownBox}>
               <Text style={styles.countdownText}>{label}</Text>
             </View>
@@ -548,9 +616,19 @@ export function GameScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  camera: { flex: 1 },
   overlay: { ...StyleSheet.absoluteFillObject },
   fullOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 10 },
+  baselineWarmupOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 999,
+    elevation: 999,
+    backgroundColor: '#000',
+  },
+  baselineWarmupImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+  },
   resultFlashOverlay: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 12,

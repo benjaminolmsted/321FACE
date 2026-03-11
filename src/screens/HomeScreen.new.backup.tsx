@@ -1,15 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import {
-  Image,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import { useEffect, useState } from 'react';
+import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { FlowPhase } from '../context/FlowContext';
 import { buildGameParams } from '../context/FlowContext';
@@ -21,40 +11,12 @@ export type GameStyle = '321face' | 'snap';
 const COUNTDOWN_MS = 1250;
 const SNAP_COUNTDOWN_MS = 75;
 const GAME_STYLE_KEY = '@321face_gameStyle';
+const GOLD = '#d4af37';
+const GOLD_DARK = '#b8960f';
 
 type Props = {
   advance: (next: FlowPhase) => void;
 };
-
-type ToggleButtonProps = {
-  leftLabel: string;
-  rightLabel: string;
-  isRightActive: boolean;
-  onPress: () => void;
-};
-
-function ToggleButton({ leftLabel, rightLabel, isRightActive, onPress }: ToggleButtonProps) {
-  return (
-    <TouchableOpacity activeOpacity={0.9} onPress={onPress} style={styles.toggleOuter}>
-      <LinearGradient
-        colors={!isRightActive ? ['#e7d192', '#ba9a4d', '#8e7334'] : ['#333', '#1a1a1a']}
-        style={styles.toggleHalf}
-      >
-        <Text style={[styles.toggleText, { color: !isRightActive ? '#3e3318' : '#a68a56' }]}>
-          {leftLabel}
-        </Text>
-      </LinearGradient>
-      <LinearGradient
-        colors={isRightActive ? ['#e7d192', '#ba9a4d', '#8e7334'] : ['#333', '#1a1a1a']}
-        style={styles.toggleHalf}
-      >
-        <Text style={[styles.toggleText, { color: isRightActive ? '#3e3318' : '#a68a56' }]}>
-          {rightLabel}
-        </Text>
-      </LinearGradient>
-    </TouchableOpacity>
-  );
-}
 
 export function HomeScreen({ advance }: Props) {
   const [rulesVisible, setRulesVisible] = useState(false);
@@ -94,51 +56,57 @@ export function HomeScreen({ advance }: Props) {
           <Text style={styles.rulesButtonText}>?</Text>
         </TouchableOpacity>
 
-        <View style={styles.header}>
-          <Text style={styles.countdownText}>3... 2.. 1</Text>
-          <Text style={styles.faceText}>FACE</Text>
+        <View style={styles.titleArea}>
+          <Text style={styles.titleSmall}>3... 2... 1</Text>
+          <Text style={styles.titleFace}>FACE</Text>
         </View>
 
-        <View style={styles.controls}>
-          <TouchableOpacity
-            activeOpacity={0.9}
-            onPress={() => setPlayMode(playMode === 'extreme' ? 'balanced' : 'extreme')}
-            onLongPress={() => setPlayMode('subtle')}
-            style={styles.toggleOuter}
-          >
-            <LinearGradient
-              colors={playMode !== 'extreme' ? ['#e7d192', '#ba9a4d', '#8e7334'] : ['#333', '#1a1a1a']}
-              style={styles.toggleHalf}
-            >
-              <Text style={[styles.toggleText, { color: playMode !== 'extreme' ? '#3e3318' : '#a68a56' }]}>
-                BALANCED
-              </Text>
-            </LinearGradient>
-            <LinearGradient
-              colors={playMode === 'extreme' ? ['#e7d192', '#ba9a4d', '#8e7334'] : ['#333', '#1a1a1a']}
-              style={styles.toggleHalf}
-            >
-              <Text style={[styles.toggleText, { color: playMode === 'extreme' ? '#3e3318' : '#a68a56' }]}>
-                EXTREME
-              </Text>
-            </LinearGradient>
-          </TouchableOpacity>
-
-          <ToggleButton
-            leftLabel="COUNTDOWN"
-            rightLabel="SNAP"
-            isRightActive={gameStyle === 'snap'}
-            onPress={() => setGameStyleAndPersist(gameStyle === 'snap' ? '321face' : 'snap')}
+        <View style={styles.maskGraphicContainer}>
+          <Image
+            source={require('../../assets/MASKS_ON_MARBLE.png')}
+            style={styles.maskGraphic}
+            resizeMode="contain"
           />
+        </View>
 
-          <TouchableOpacity activeOpacity={0.8} onPress={onPlay} style={styles.playButtonContainer}>
-            <LinearGradient
-              colors={['#f2e5bc', '#d4b86a', '#b48e3d', '#8e7334']}
-              locations={[0, 0.45, 0.55, 1]}
-              style={styles.playButton}
+        <View style={styles.buttonsSection}>
+          <View style={[styles.segmentedRow, styles.segmentedGold]}>
+            <TouchableOpacity
+              style={[styles.segmentedBtn, styles.segmentedBtnLeft, playMode === 'balanced' && styles.segmentedBtnActive]}
+              onPress={() => setPlayMode('balanced')}
+              onLongPress={() => setPlayMode('subtle')}
+              activeOpacity={0.8}
             >
-              <Text style={styles.playText}>PLAY</Text>
-            </LinearGradient>
+              <Text style={[styles.segmentedText, playMode === 'balanced' && styles.segmentedTextActive]}>BALANCED</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.segmentedBtn, styles.segmentedBtnRight, playMode === 'extreme' && styles.segmentedBtnActive]}
+              onPress={() => setPlayMode('extreme')}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.segmentedText, playMode === 'extreme' && styles.segmentedTextActive]}>EXTREME</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={[styles.segmentedRow, styles.segmentedGold]}>
+            <TouchableOpacity
+              style={[styles.segmentedBtn, styles.segmentedBtnLeft, gameStyle === '321face' && styles.segmentedBtnActive]}
+              onPress={() => setGameStyleAndPersist('321face')}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.segmentedText, gameStyle === '321face' && styles.segmentedTextActive]}>Countdown</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.segmentedBtn, styles.segmentedBtnRight, gameStyle === 'snap' && styles.segmentedBtnActive]}
+              onPress={() => setGameStyleAndPersist('snap')}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.segmentedText, gameStyle === 'snap' && styles.segmentedTextActive]}>Snap</Text>
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity style={styles.playButton} onPress={onPlay} activeOpacity={0.8}>
+            <Text style={styles.playButtonText}>PLAY</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -181,11 +149,9 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    backgroundColor: 'rgba(245,245,245,0.3)',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 40,
     paddingTop: 48,
+    paddingHorizontal: 24,
+    alignItems: 'center',
   },
   rulesButton: {
     position: 'absolute',
@@ -195,76 +161,102 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     borderWidth: 2,
-    borderColor: '#8b7345',
+    borderColor: GOLD,
     backgroundColor: 'rgba(255,255,255,0.9)',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 10,
   },
   rulesButtonText: {
-    color: '#6b5a32',
+    color: GOLD_DARK,
     fontSize: 24,
     fontWeight: 'bold',
   },
-  header: {
+  titleArea: {
     alignItems: 'center',
+    marginBottom: 16,
   },
-  countdownText: {
-    fontSize: 32,
-    color: '#a68a56',
-    fontWeight: '300',
-    letterSpacing: 4,
+  titleSmall: {
+    color: GOLD,
+    fontSize: 18,
+    fontWeight: '600',
+    letterSpacing: 2,
   },
-  faceText: {
-    fontSize: 72,
-    color: '#8b7345',
+  titleFace: {
+    color: GOLD,
+    fontSize: 48,
     fontWeight: 'bold',
-    marginTop: -10,
-    letterSpacing: 8,
+    letterSpacing: 4,
+    textShadowColor: 'rgba(0,0,0,0.2)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
   },
-  controls: {
-    width: '85%',
-    gap: 20,
+  maskGraphicContainer: {
+    width: 220,
+    height: 140,
+    marginBottom: 32,
   },
-  toggleOuter: {
-    flexDirection: 'row',
-    height: 50,
-    borderRadius: 25,
-    borderWidth: 2,
-    borderColor: '#444',
-    overflow: 'hidden',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
+  maskGraphic: {
+    width: '100%',
+    height: '100%',
   },
-  toggleHalf: {
-    flex: 1,
-    justifyContent: 'center',
+  buttonsSection: {
     alignItems: 'center',
+    width: '100%',
+    maxWidth: 320,
   },
-  toggleText: {
-    fontSize: 14,
-    fontWeight: '700',
-    letterSpacing: 1,
-  },
-  playButtonContainer: {
-    borderRadius: 35,
-    borderWidth: 3,
-    borderColor: '#6b5a32',
+  segmentedRow: {
+    flexDirection: 'row',
+    width: '100%',
+    marginBottom: 12,
+    borderRadius: 12,
     overflow: 'hidden',
-    marginTop: 10,
+  },
+  segmentedGold: {
+    borderWidth: 2,
+    borderColor: GOLD,
+  },
+  segmentedBtn: {
+    flex: 1,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#333',
+  },
+  segmentedBtnLeft: {
+    borderRightWidth: 1,
+    borderRightColor: GOLD,
+  },
+  segmentedBtnRight: {
+    borderLeftWidth: 0,
+  },
+  segmentedBtnActive: {
+    backgroundColor: GOLD,
+  },
+  segmentedText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  segmentedTextActive: {
+    color: '#1a1a1a',
   },
   playButton: {
-    height: 80,
-    justifyContent: 'center',
+    width: '100%',
+    paddingVertical: 20,
+    marginTop: 8,
+    backgroundColor: GOLD,
+    borderWidth: 2,
+    borderColor: GOLD_DARK,
+    borderRadius: 12,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  playText: {
-    fontSize: 36,
-    fontWeight: '900',
-    color: '#5d4d26',
-    letterSpacing: 5,
+  playButtonText: {
+    color: '#fff',
+    fontSize: 28,
+    fontWeight: 'bold',
+    letterSpacing: 2,
   },
   modalOverlay: {
     flex: 1,
@@ -292,7 +284,7 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   modalClose: {
-    backgroundColor: '#8e7334',
+    backgroundColor: GOLD,
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 12,

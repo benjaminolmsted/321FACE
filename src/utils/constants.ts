@@ -10,6 +10,13 @@ export const GAME_CONFIG = {
   TILT_THRESHOLD_DEGREES: 15,
 } as const;
 
+/** Per-mode blendshape threshold and strike limit (used by Baseline and FlowContext) */
+export const PLAY_MODE_CONFIG = {
+  subtle: { blendshapeThreshold: 0.175, maxStrikes: 3 },
+  balanced: { blendshapeThreshold: 0.3, maxStrikes: 2 },
+  extreme: { blendshapeThreshold: 0.9, maxStrikes: 1 },
+} as const;
+
 export const COMPARISON_STRATEGIES: readonly string[] = [];
 export type ComparisonStrategyType = 'contour' | 'embedding';
 

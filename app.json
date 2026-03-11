@@ -4,13 +4,13 @@
     "slug": "321FACE",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/321FACE_SPLASH.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/MASKS_ON_MARBLE.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#f5f5f5"
     },
     "ios": {
       "supportsTablet": true,
@@ -22,7 +22,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/321FACE_SPLASH.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
