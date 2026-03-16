@@ -3,7 +3,7 @@ import { requireNativeModule } from 'expo-modules-core';
 import * as FileSystem from 'expo-file-system/legacy';
 
 const FFmpeg = requireNativeModule<{ executeAsync: (command: string) => Promise<boolean> }>('ExpoFfmpegLocal');
-const DEFAULT_DURATION = 0.55; // seconds per image
+const DEFAULT_DURATION = 0.125; // seconds per image
 
 function toFfmpegPath(uri: string): string {
   return uri.replace(/^file:\/\//, '');

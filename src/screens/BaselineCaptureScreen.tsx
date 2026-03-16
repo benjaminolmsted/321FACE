@@ -28,6 +28,7 @@ export function BaselineCaptureScreen({ flowPhase, advance }: Props) {
     sourceImageHeight: number;
   } | null>(null);
   const [flashOverlaySize, setFlashOverlaySize] = useState({ width: 0, height: 0 });
+  const [showMarbleSplash, setShowMarbleSplash] = useState(true);
 
   const error = phase === 'error' && flowPhase.data?.kind === 'error' ? flowPhase.data : null;
   const displayUri = phase === 'flash' && flowPhase.data?.kind === 'flash' ? flowPhase.data.displayUri : null;
@@ -35,6 +36,14 @@ export function BaselineCaptureScreen({ flowPhase, advance }: Props) {
   useEffect(() => {
     clearStoredFaces();
   }, []);
+
+  // Show marble for 0.5s on entry, then reveal camera
+  useEffect(() => {
+    if (phase !== 'capture' || displayUri) return;
+    setShowMarbleSplash(true);
+    const id = setTimeout(() => setShowMarbleSplash(false), 500);
+    return () => clearTimeout(id);
+  }, [phase, displayUri]);
 
   useEffect(() => {
     if (phase === 'error') setCapturing(false);
@@ -138,28 +147,41 @@ export function BaselineCaptureScreen({ flowPhase, advance }: Props) {
 
   if (!permission) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" />
+      <View style={styles.wrapper}>
+        <Image source={require('../../assets/MASKS_ON_MARBLE.png')} style={styles.backgroundImage} resizeMode="cover" />
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color="#e6c44d" />
+        </View>
       </View>
     );
   }
 
   if (!permission.granted) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.permissionText}>Camera permission is required</Text>
-        <TouchableOpacity style={styles.button} onPress={requestPermission}>
-          <Text style={styles.buttonText}>Grant Permission</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.backButton} onPress={goBack}>
-          <Text style={styles.backText}>Back</Text>
-        </TouchableOpacity>
+      <View style={styles.wrapper}>
+        <Image source={require('../../assets/MASKS_ON_MARBLE.png')} style={styles.backgroundImage} resizeMode="cover" />
+        <View style={styles.center}>
+          <Text style={styles.permissionText}>Camera permission is required</Text>
+          <TouchableOpacity style={styles.button} onPress={requestPermission}>
+            <Text style={styles.buttonText}>Grant Permission</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.backButton} onPress={goBack}>
+            <Text style={styles.backText}>Back</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <View style={styles.wrapper}>
+      {(error || (showMarbleSplash && !displayUri)) && (
+        <Image
+          source={require('../../assets/MASKS_ON_MARBLE.png')}
+          style={styles.backgroundImage}
+          resizeMode="cover"
+        />
+      )}
       {displayUri && (
         <View
           style={styles.baselineFlashOverlay}
@@ -192,20 +214,21 @@ export function BaselineCaptureScreen({ flowPhase, advance }: Props) {
       )}
 
       <View style={styles.overlay} pointerEvents="box-none">
-        {cameraReady && (
+        {cameraReady && !showMarbleSplash && !displayUri && (
         <View style={styles.messageBox}>
           <Text style={styles.message}>
             Capture the baseline pose you want to use for this run
           </Text>
+          <Text style={styles.strikeTypesTitle}>STRIKE TYPES</Text>
           <View style={styles.strikeLegend}>
             <Text style={styles.strikeLegendLine}>
-              SAME <Text style={styles.strikeX}>X</Text> - face too similar to a previous face
+              <Text style={styles.strikeLegendType}>SAME</Text> - face too similar to a previous face
             </Text>
             <Text style={styles.strikeLegendLine}>
-              TILT <Text style={styles.strikeX}>X</Text> - tilting face too much from baseline
+              <Text style={styles.strikeLegendType}>TILT</Text> - tilting face too much from baseline
             </Text>
             <Text style={styles.strikeLegendLine}>
-              ZOOM <Text style={styles.strikeX}>X</Text> - zooming face in or out too much
+              <Text style={styles.strikeLegendType}>ZOOM</Text> - zooming face in or out too much
             </Text>
           </View>
         </View>
@@ -230,7 +253,7 @@ export function BaselineCaptureScreen({ flowPhase, advance }: Props) {
         )}
 
         <View style={styles.bottomBar}>
-          {!capturing && !displayUri && (
+          {cameraReady && !showMarbleSplash && !displayUri && !capturing && (
             <TouchableOpacity
               style={styles.captureButton}
               onPress={phase === 'error' ? onRetry : doCapture}
@@ -244,7 +267,12 @@ export function BaselineCaptureScreen({ flowPhase, advance }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  wrapper: { flex: 1 },
+  backgroundImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+  },
   overlay: { ...StyleSheet.absoluteFillObject },
   baselineFlashOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -264,26 +292,46 @@ const styles = StyleSheet.create({
   messageBox: {
     position: 'absolute',
     top: 48,
-    left: 12,
-    right: 12,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    left: 24,
+    right: 24,
+    backgroundColor: 'rgba(255,255,255,0.92)',
     padding: 20,
     borderRadius: 12,
     alignItems: 'center',
+    borderLeftWidth: 4,
+    borderRightWidth: 4,
+    borderLeftColor: '#e6c44d',
+    borderRightColor: '#e6c44d',
   },
-  message: { color: '#fff', fontSize: 18, textAlign: 'center', fontWeight: '500' },
-  strikeLegend: { marginTop: 12, alignItems: 'flex-start' },
-  strikeLegendLine: { color: '#fff', fontSize: 14, marginTop: 4 },
-  strikeX: { color: '#c00', fontSize: 22, fontWeight: '800' },
+  message: {
+    color: '#6b5a32',
+    fontSize: 18,
+    textAlign: 'center',
+    fontWeight: '600',
+  },
+  strikeTypesTitle: {
+    marginTop: 8,
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#c00',
+    textAlign: 'center',
+  },
+  strikeLegend: { marginTop: 4, alignItems: 'flex-start' },
+  strikeLegendLine: { color: '#000', fontSize: 14, marginTop: 4 },
+  strikeLegendType: { color: '#c00', fontWeight: 'bold' },
   errorBox: {
     left: 24,
     right: 24,
-    backgroundColor: 'rgba(180,0,0,0.8)',
-    padding: 12,
-    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    padding: 16,
+    borderRadius: 12,
     alignItems: 'center',
+    borderLeftWidth: 4,
+    borderRightWidth: 4,
+    borderLeftColor: '#c00',
+    borderRightColor: '#c00',
   },
-  errorText: { color: '#fff', fontSize: 14 },
+  errorText: { color: '#c00', fontSize: 14, fontWeight: '600' },
   debugScroll: {
     position: 'absolute',
     bottom: 140,
@@ -299,14 +347,17 @@ const styles = StyleSheet.create({
   debugImageBox: {
     marginTop: 12,
     alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: 'rgba(255,255,255,0.92)',
     padding: 12,
-    borderRadius: 8,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#e6c44d',
   },
   debugImageLabel: {
-    color: '#fff',
+    color: '#6b5a32',
     fontSize: 12,
     marginBottom: 8,
+    fontWeight: '600',
   },
   debugImage: {
     width: 200,
@@ -324,13 +375,20 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: '#fff',
+    backgroundColor: '#d4b86a',
     borderWidth: 4,
-    borderColor: '#000',
+    borderColor: '#6b5a32',
   },
-  permissionText: { fontSize: 16, marginBottom: 16 },
-  button: { backgroundColor: '#000', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8 },
-  buttonText: { color: '#fff', fontSize: 16 },
+  permissionText: { fontSize: 16, marginBottom: 16, color: '#6b5a32' },
+  button: {
+    backgroundColor: '#d4b86a',
+    borderWidth: 3,
+    borderColor: '#6b5a32',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  buttonText: { color: '#5d4d26', fontSize: 16, fontWeight: '600' },
   backButton: { marginTop: 24 },
-  backText: { fontSize: 16, color: '#666' },
+  backText: { fontSize: 16, color: '#5d4d26', fontWeight: '600' },
 });

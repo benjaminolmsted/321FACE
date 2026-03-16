@@ -52,9 +52,6 @@ export function GameScreen({ flowPhase, advance }: Props) {
   const countdownMs = gameParams.countdownMs;
   const gameStyle = gameParams.gameStyle ?? '321face';
 
-  const goBack = useCallback(() => {
-    advance({ screen: 'baseline', phase: 'capture', gameParams });
-  }, [advance, gameParams]);
   const { cameraRef, cameraReady: cameraReadyFromContext, permission, requestPermission } = useCamera();
 
   const [gameState, setGameState] = useState<GameState>('playing');
@@ -453,9 +450,6 @@ export function GameScreen({ flowPhase, advance }: Props) {
         <TouchableOpacity style={styles.button} onPress={requestPermission}>
           <Text style={styles.buttonText}>Grant Permission</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.backButton} onPress={goBack}>
-          <Text style={styles.backText}>Back</Text>
-        </TouchableOpacity>
       </View>
     );
   }
@@ -476,12 +470,15 @@ export function GameScreen({ flowPhase, advance }: Props) {
             resizeMode="cover"
           />
           <View style={styles.overlay} pointerEvents="box-none">
-            <TouchableOpacity style={styles.backBtn} onPress={goBack}>
-              <Text style={styles.backBtnText}>← Back</Text>
-            </TouchableOpacity>
             <View style={styles.topBar}>
-              <Text style={styles.roundText}>Round {roundIndex + 1}</Text>
-              <Text style={styles.strikesText}>Strikes: {strikes} / {maxStrikes}</Text>
+              <View style={styles.topBarLabelContainer}>
+                <Text style={[styles.topBarText, styles.topBarTextShadow]}>Round {roundIndex + 1}</Text>
+                <Text style={styles.topBarText}>Round {roundIndex + 1}</Text>
+              </View>
+              <View style={styles.topBarLabelContainer}>
+                <Text style={[styles.topBarText, styles.topBarTextShadow]}>Strikes: {strikes} / {maxStrikes}</Text>
+                <Text style={styles.topBarText}>Strikes: {strikes} / {maxStrikes}</Text>
+              </View>
             </View>
             {(() => {
               const displayLabel = gameStyle === 'snap' ? (phase === 3 ? 'SNAP' : '') : label;
@@ -538,14 +535,15 @@ export function GameScreen({ flowPhase, advance }: Props) {
               strokeWidth={3}
             />
           )}
-          <TouchableOpacity style={styles.backBtn} onPress={goBack}>
-            <Text style={styles.backBtnText}>← Back</Text>
-          </TouchableOpacity>
           <View style={styles.topBar}>
-            <Text style={styles.roundText}>Round {roundIndex + 1}</Text>
-            <Text style={styles.strikesText}>
-              Strikes: {strikes} / {maxStrikes}
-            </Text>
+            <View style={styles.topBarLabelContainer}>
+              <Text style={[styles.topBarText, styles.topBarTextShadow]}>Round {roundIndex + 1}</Text>
+              <Text style={styles.topBarText}>Round {roundIndex + 1}</Text>
+            </View>
+            <View style={styles.topBarLabelContainer}>
+              <Text style={[styles.topBarText, styles.topBarTextShadow]}>Strikes: {strikes} / {maxStrikes}</Text>
+              <Text style={styles.topBarText}>Strikes: {strikes} / {maxStrikes}</Text>
+            </View>
           </View>
           {(() => {
             const displayLabel = gameStyle === 'snap' ? (phase === 3 ? 'SNAP' : '') : label;
@@ -673,11 +671,33 @@ const styles = StyleSheet.create({
     left: 3,
     color: 'rgba(0,0,0,0.5)',
   },
-  backBtn: { position: 'absolute', top: 48, left: 16, zIndex: 10 },
-  backBtnText: { color: '#fff', fontSize: 18, fontWeight: '600' },
-  topBar: { position: 'absolute', top: 48, left: 0, right: 0, alignItems: 'center' },
-  roundText: { color: '#fff', fontSize: 18, fontWeight: '600' },
-  strikesText: { color: '#fff', fontSize: 14, marginTop: 4 },
+  topBar: {
+    position: 'absolute',
+    top: 48,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(128, 128, 128, 0.75)',
+  },
+  topBarLabelContainer: {
+    position: 'relative',
+  },
+  topBarText: {
+    fontSize: 20,
+    color: '#e6c44d',
+    fontWeight: 'bold',
+    letterSpacing: 2,
+  },
+  topBarTextShadow: {
+    position: 'absolute',
+    top: 1,
+    left: 1,
+    color: 'rgba(0,0,0,0.5)',
+  },
   bottomBar: { position: 'absolute', bottom: 48, left: 0, right: 0, alignItems: 'center' },
   captureButton: {
     width: 72, height: 72, borderRadius: 36,
@@ -687,8 +707,6 @@ const styles = StyleSheet.create({
   permissionText: { fontSize: 16, marginBottom: 16 },
   button: { backgroundColor: '#000', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8 },
   buttonText: { color: '#fff', fontSize: 16 },
-  backButton: { marginTop: 24 },
-  backText: { fontSize: 16, color: '#666' },
   benchmarkStrip: {
     position: 'absolute', bottom: 100, left: 8, right: 8,
     backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4,

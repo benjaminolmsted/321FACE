@@ -193,7 +193,7 @@ const styles = StyleSheet.create({
   rulesButton: {
     position: 'absolute',
     top: 32,
-    right: 24,
+    right: 10,
     width: 44,
     height: 44,
     borderRadius: 22,
@@ -220,7 +220,7 @@ const styles = StyleSheet.create({
   },
   faceTextContainer: {
     position: 'relative',
-    marginTop: 20,
+    marginTop: 30,
   },
   faceText: {
     fontSize: 72,

@@ -114,7 +114,7 @@ export default function App() {
         <CameraProvider>
           <FlowRouter />
         </CameraProvider>
-        <StatusBar style="auto" />
+        <StatusBar hidden />
       </FlowProvider>
     </ErrorBoundary>
   );

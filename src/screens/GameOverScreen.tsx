@@ -20,7 +20,7 @@ type Props = {
   onPlayAgain: () => void;
 };
 
-const PREVIEW_INTERVAL_MS = 550; // Match video's 0.55s per frame
+const PREVIEW_INTERVAL_MS = 125; // Match video's 0.125s per frame
 
 export function GameOverScreen({ strikes, totalFaces, allFaceUris, onPlayAgain }: Props) {
   const [exporting, setExporting] = useState(false);
@@ -123,6 +123,11 @@ export function GameOverScreen({ strikes, totalFaces, allFaceUris, onPlayAgain }
 
   return (
     <View style={styles.wrapper}>
+      <Image
+        source={require('../../assets/MASKS_ON_MARBLE.png')}
+        style={styles.backgroundImage}
+        resizeMode="cover"
+      />
       {exportingVideo && allFaceUris.length > 0 && (
         <View style={styles.previewOverlay}>
           <View style={styles.previewImageWrapper}>
@@ -139,54 +144,58 @@ export function GameOverScreen({ strikes, totalFaces, allFaceUris, onPlayAgain }
         </View>
       )}
       <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Game Over</Text>
-      <Text style={styles.subtitle}>{totalFaces} unique faces in this run</Text>
+      <View style={styles.titleContainer}>
+        <Text style={[styles.title, styles.titleShadow]}>GAME OVER</Text>
+        <Text style={styles.title}>GAME OVER</Text>
+      </View>
+      <View style={styles.scoreContainer}>
+        <Text style={[styles.scoreText, styles.scoreTextShadow]}>SCORE: {totalFaces} UNIQUE {totalFaces === 1 ? 'FACE' : 'FACES'}</Text>
+        <Text style={styles.scoreText}>SCORE: {totalFaces} UNIQUE {totalFaces === 1 ? 'FACE' : 'FACES'}</Text>
+      </View>
 
       <View style={styles.strikesList}>
         {strikes.map((strike, i) => (
           <View key={i} style={styles.strikeCard}>
-            <Text style={styles.strikeLabel}>Strike {i + 1}: {strike.type === 'similar' ? 'SAME' : strike.type.toUpperCase()}</Text>
-            {strike.type === 'tilt' && <Text style={styles.contentSubtext}>Face too tilted</Text>}
-            {strike.type === 'zoom' && <Text style={styles.contentSubtext}>Face too close or far</Text>}
-            {(strike.type === 'similar' || strike.type === 'tilt' || strike.type === 'zoom') && strike.previousImageUri ? (
-              <View style={styles.similarRow}>
-                <View style={styles.imageSlot}>
-                  <Text style={styles.imageLabel}>
-                    {strike.type === 'similar' ? 'Previous' : 'Baseline'}
-                  </Text>
-                  <ImageWithBadge uri={strike.previousImageUri} />
-                </View>
-                <View style={styles.imageSlot}>
-                  <Text style={styles.imageLabel}>Striking</Text>
-                  <ImageWithBadge uri={strike.currentImageUri} />
-                </View>
+            <View style={styles.strikeCardRow}>
+              <View style={styles.strikeTypeContainer}>
+                <Text style={[styles.strikeType, styles.strikeTypeRotated]} numberOfLines={1}>
+                  {strike.type === 'similar' ? 'SAME' : strike.type.toUpperCase()}
+                </Text>
               </View>
-            ) : (
-              <ImageWithBadge uri={strike.currentImageUri} style={styles.singleImage} />
-            )}
+              <View style={styles.strikeContent}>
+                {(strike.type === 'similar' || strike.type === 'tilt' || strike.type === 'zoom') && strike.previousImageUri ? (
+                  <View style={styles.similarRow}>
+                    <ImageWithBadge uri={strike.previousImageUri} />
+                    <ImageWithBadge uri={strike.currentImageUri} />
+                  </View>
+                ) : (
+                  <ImageWithBadge uri={strike.currentImageUri} style={styles.singleImage} />
+                )}
+              </View>
+              <View style={[styles.strikeTypeContainer, styles.strikeTypeContainerRight]}>
+                <Text style={[styles.strikeType, styles.strikeTypeRotated270]} numberOfLines={1}>
+                  {strike.type === 'similar' ? 'SAME' : strike.type.toUpperCase()}
+                </Text>
+              </View>
+            </View>
           </View>
         ))}
       </View>
 
-      <TouchableOpacity
-        style={[styles.button, styles.exportButton]}
-        onPress={handleExportImages}
-        disabled={exporting}
-      >
-        <Text style={styles.buttonText}>{exporting ? 'Exporting...' : 'Export images'}</Text>
+      <TouchableOpacity style={styles.button} onPress={onPlayAgain} activeOpacity={0.8}>
+        <Text style={[styles.buttonText, styles.playAgainButtonText]}>PLAY AGAIN</Text>
       </TouchableOpacity>
 
       <TouchableOpacity
-        style={[styles.button, styles.exportButton, !canExportVideo && styles.buttonDisabled]}
+        style={[styles.button, styles.exportButton, (exportingVideo || exporting) && styles.buttonDisabled]}
         onPress={handleExportVideo}
-        disabled={!canExportVideo || exportingVideo}
+        onLongPress={handleExportImages}
+        disabled={exportingVideo || exporting}
         activeOpacity={0.8}
       >
-        <Text style={styles.buttonText}>{exportingVideo ? 'Exporting video...' : 'Export video'}</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.button} onPress={onPlayAgain} activeOpacity={0.8}>
-        <Text style={styles.buttonText}>Play again!</Text>
+        <Text style={styles.buttonText}>
+          {exportingVideo ? 'Exporting video...' : exporting ? 'Exporting...' : 'EXPORT VIDEO'}
+        </Text>
       </TouchableOpacity>
     </ScrollView>
     </View>
@@ -195,7 +204,12 @@ export function GameOverScreen({ strikes, totalFaces, allFaceUris, onPlayAgain }
 
 const styles = StyleSheet.create({
   wrapper: { flex: 1 },
-  scroll: { flex: 1, backgroundColor: '#fff' },
+  backgroundImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+  },
+  scroll: { flex: 1, backgroundColor: 'transparent' },
   container: { alignItems: 'center', padding: 24, paddingBottom: 48 },
   previewOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -217,7 +231,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 48,
     left: 24,
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: 'rgba(107, 90, 50, 0.9)',
     borderRadius: 12,
     minWidth: 28,
     height: 28,
@@ -228,32 +242,94 @@ const styles = StyleSheet.create({
   previewLabel: {
     position: 'absolute',
     bottom: 48,
-    color: '#fff',
+    color: '#e6c44d',
     fontSize: 18,
     fontWeight: '600',
   },
-  title: { fontSize: 36, fontWeight: 'bold', color: '#c00', marginBottom: 4 },
-  subtitle: { fontSize: 20, color: '#666', marginBottom: 24 },
-  strikesList: { width: '100%', marginBottom: 32 },
+  titleContainer: {
+    position: 'relative',
+    marginTop: 25,
+    marginBottom: 4,
+  },
+  title: {
+    fontSize: 48,
+    color: '#c00',
+    fontWeight: 'bold',
+    letterSpacing: 2,
+  },
+  titleShadow: {
+    position: 'absolute',
+    top: 3,
+    left: 3,
+    color: 'rgba(0,0,0,0.5)',
+  },
+  scoreContainer: {
+    position: 'relative',
+    marginTop: 4,
+    marginBottom: 24,
+  },
+  scoreText: {
+    fontSize: 20,
+    color: '#e6c44d',
+    fontWeight: 'bold',
+    letterSpacing: 2,
+  },
+  scoreTextShadow: {
+    position: 'absolute',
+    top: 1,
+    left: 1,
+    color: 'rgba(0,0,0,0.5)',
+  },
+  strikesList: { width: '100%', marginBottom: 16 },
   strikeCard: {
-    backgroundColor: '#f8f8f8',
+    backgroundColor: 'rgba(255,255,255,0.92)',
     borderRadius: 12,
-    padding: 16,
+    paddingVertical: 16,
+    paddingRight: 16,
     marginBottom: 16,
     borderLeftWidth: 4,
-    borderLeftColor: '#c00',
+    borderRightWidth: 4,
+    borderLeftColor: '#e6c44d',
+    borderRightColor: '#e6c44d',
   },
-  strikeLabel: { fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 12 },
+  strikeCardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  strikeTypeContainer: {
+    width: 75,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  strikeTypeContainerRight: {
+    marginRight: -10,
+  },
+  strikeType: {
+    color: '#c00',
+    fontWeight: 'bold',
+    fontSize: 21,
+    flexShrink: 0,
+  },
+  strikeTypeRotated: {
+    transform: [{ translateX: -20 }, { rotate: '-90deg' }],
+  },
+  strikeTypeRotated270: {
+    transform: [{ translateX: 20 }, { rotate: '90deg' }],
+  },
+  strikeContent: {
+    flex: 1,
+  },
   similarRow: { flexDirection: 'row', gap: 16, justifyContent: 'center' },
   imageSlot: { alignItems: 'center' },
-  imageLabel: { fontSize: 12, color: '#666', marginBottom: 4 },
+  imageLabel: { fontSize: 12, color: '#6b5a32', marginBottom: 4 },
   imageWithBadge: { position: 'relative' },
   faceImage: { width: 100, height: 100, borderRadius: 8 },
   frameBadge: {
     position: 'absolute',
     top: 4,
     left: 4,
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: 'rgba(107, 90, 50, 0.9)',
     borderRadius: 10,
     minWidth: 20,
     height: 20,
@@ -268,10 +344,31 @@ const styles = StyleSheet.create({
   },
   contentBox: { alignItems: 'center' },
   contentText: { fontSize: 18, fontWeight: 'bold', color: '#c00' },
-  contentSubtext: { fontSize: 14, color: '#666', marginBottom: 8 },
+  contentSubtext: { fontSize: 14, color: '#000', marginBottom: 8 },
   singleImage: { width: 120, height: 120, borderRadius: 8, marginTop: 4 },
-  button: { backgroundColor: '#000', paddingHorizontal: 48, paddingVertical: 16, borderRadius: 12, width: '100%', alignItems: 'center', marginBottom: 12 },
-  exportButton: { backgroundColor: '#444' },
+  button: {
+    backgroundColor: '#d4b86a',
+    borderWidth: 3,
+    borderColor: '#6b5a32',
+    paddingHorizontal: 48,
+    paddingVertical: 16,
+    borderRadius: 12,
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  exportButton: {
+    backgroundColor: '#d4b86a',
+    borderColor: '#6b5a32',
+  },
   buttonDisabled: { opacity: 0.5 },
-  buttonText: { color: '#fff', fontSize: 18, fontWeight: '600' },
+  buttonText: {
+    color: '#5d4d26',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  playAgainButtonText: {
+    fontSize: 36,
+    fontWeight: '900',
+  },
 });
