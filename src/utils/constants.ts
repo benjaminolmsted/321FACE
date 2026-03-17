@@ -13,7 +13,7 @@ export const GAME_CONFIG = {
 /** Per-mode blendshape threshold and strike limit (used by Baseline and FlowContext) */
 export const PLAY_MODE_CONFIG = {
   subtle: { blendshapeThreshold: 0.175, maxStrikes: 3 },
-  balanced: { blendshapeThreshold: 0.3, maxStrikes: 2 },
+  balanced: { blendshapeThreshold: 0.35, maxStrikes: 3 },
   extreme: { blendshapeThreshold: 0.85, maxStrikes: 1 },
 } as const;
 

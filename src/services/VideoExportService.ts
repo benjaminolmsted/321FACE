@@ -40,7 +40,7 @@ export async function imagesToVideo(
     lines.push(`file '${toFfmpegPath(imageUris[i])}'`);
     lines.push(`duration ${durationPerImage}`);
   }
-  lines.push(`file '${toFfmpegPath(imageUris[imageUris.length - 1])}'`); // repeat last for correct end duration
+  // No repeat of last file - each file has explicit duration; repeat caused last frame to show indefinitely
 
   console.log('[VideoExport] Writing concat list to', listPath);
   await FileSystem.writeAsStringAsync(listPath, lines.join('\n'));
