@@ -3,7 +3,7 @@ import type { ProcessResult } from '../services/FaceComparisonService';
 import { DataGrid } from './DebugScreen';
 
 type Props = {
-  reason: 'similar' | 'tilt' | 'zoom';
+  reason: 'similar' | 'tilt' | 'zoom' | 'nfd';
   currentImageUri: string;
   previousImageUri?: string;
   strikes: number;

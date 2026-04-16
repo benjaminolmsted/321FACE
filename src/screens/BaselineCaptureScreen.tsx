@@ -2,15 +2,17 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { FaceOvalOverlay } from '../components/FaceOvalOverlay';
+import { PermissionGate, PermissionGateLoading } from '../components/PermissionGate';
 import {
   flipBaselineForDisplay,
   processBaselineFromTemp,
 } from '../services/BaselineCaptureService';
 import { clearStoredFaces } from '../services/StorageService';
 import { useCamera } from '../context/CameraContext';
+import { usePermissionGate } from '../hooks/usePermissionGate';
 import type { FlowPhase } from '../context/FlowContext';
 
-const BASELINE_FLASH_DELAY_MS = 500; // Delay after oval appears before advancing
+const BASELINE_FLASH_DELAY_MS = 500;
 
 type Props = {
   flowPhase: Extract<FlowPhase, { screen: 'baseline' }>;
@@ -20,7 +22,9 @@ type Props = {
 export function BaselineCaptureScreen({ flowPhase, advance }: Props) {
   const { phase, gameParams } = flowPhase;
   const goBack = useCallback(() => advance({ screen: 'home' }), [advance]);
-  const { cameraRef, cameraReady, permission, requestPermission } = useCamera();
+  const { cameraRef, cameraReady } = useCamera();
+  const { status, gateMode, busy, onGrant, onCancel } = usePermissionGate(goBack);
+
   const [capturing, setCapturing] = useState(false);
   const [flashResult, setFlashResult] = useState<{
     faceLandmarks: { x: number; y: number; z: number }[];
@@ -37,7 +41,6 @@ export function BaselineCaptureScreen({ flowPhase, advance }: Props) {
     clearStoredFaces();
   }, []);
 
-  // Show marble for 0.5s on entry, then reveal camera
   useEffect(() => {
     if (phase !== 'capture' || displayUri) return;
     setShowMarbleSplash(true);
@@ -49,12 +52,10 @@ export function BaselineCaptureScreen({ flowPhase, advance }: Props) {
     if (phase === 'error') setCapturing(false);
   }, [phase]);
 
-  // Reset flash result when leaving flash phase
   useEffect(() => {
     if (phase !== 'flash') setFlashResult(null);
   }, [phase]);
 
-  // Phase handler: baseline.flash → await processing, show oval, then 500ms later advance
   useEffect(() => {
     if (phase !== 'flash' || flowPhase.data?.kind !== 'flash') return;
     const { displayUri: path, processing } = flowPhase.data;
@@ -79,12 +80,9 @@ export function BaselineCaptureScreen({ flowPhase, advance }: Props) {
         sourceImageHeight: result.sourceImageHeight,
       });
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [phase, flowPhase.data, gameParams, advance]);
 
-  // 500ms after oval is visible, advance to game
   useEffect(() => {
     if (phase !== 'flash' || flowPhase.data?.kind !== 'flash' || !flashResult || flashOverlaySize.width === 0) return;
 
@@ -113,8 +111,6 @@ export function BaselineCaptureScreen({ flowPhase, advance }: Props) {
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.9, base64: false, shutterSound: false });
       if (!photo?.uri) return;
-
-      console.log('[321FACE] Baseline capture:', photo.width, 'x', photo.height);
 
       const { flippedPath } = await flipBaselineForDisplay(photo.uri);
       const processing = processBaselineFromTemp(flippedPath, photo.width);
@@ -145,34 +141,11 @@ export function BaselineCaptureScreen({ flowPhase, advance }: Props) {
     });
   }, [gameParams, advance]);
 
-  if (!permission) {
-    return (
-      <View style={styles.wrapper}>
-        <Image source={require('../../assets/MASKS_ON_MARBLE.png')} style={styles.backgroundImage} resizeMode="cover" />
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color="#e6c44d" />
-        </View>
-      </View>
-    );
-  }
+  // --- Permission gate ---
+  if (status === 'loading') return <PermissionGateLoading />;
+  if (status === 'gate') return <PermissionGate gateMode={gateMode} busy={busy} onGrant={onGrant} onCancel={onCancel} />;
 
-  if (!permission.granted) {
-    return (
-      <View style={styles.wrapper}>
-        <Image source={require('../../assets/MASKS_ON_MARBLE.png')} style={styles.backgroundImage} resizeMode="cover" />
-        <View style={styles.center}>
-          <Text style={styles.permissionText}>Camera permission is required</Text>
-          <TouchableOpacity style={styles.button} onPress={requestPermission}>
-            <Text style={styles.buttonText}>Grant Permission</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.backButton} onPress={goBack}>
-            <Text style={styles.backText}>Back</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
-
+  // --- Camera UI ---
   return (
     <View style={styles.wrapper}>
       {(error || (showMarbleSplash && !displayUri)) && (
@@ -258,7 +231,9 @@ export function BaselineCaptureScreen({ flowPhase, advance }: Props) {
               style={styles.captureButton}
               onPress={phase === 'error' ? onRetry : doCapture}
               activeOpacity={0.8}
-            />
+            >
+              <Text style={styles.captureButtonText}>CAPTURE</Text>
+            </TouchableOpacity>
           )}
         </View>
       </View>
@@ -288,7 +263,6 @@ const styles = StyleSheet.create({
   flashSpinner: {
     position: 'absolute',
   },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   messageBox: {
     position: 'absolute',
     top: 48,
@@ -372,23 +346,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   captureButton: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 83,
+    height: 83,
+    borderRadius: 42,
     backgroundColor: '#d4b86a',
     borderWidth: 4,
     borderColor: '#6b5a32',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  permissionText: { fontSize: 16, marginBottom: 16, color: '#6b5a32' },
-  button: {
-    backgroundColor: '#d4b86a',
-    borderWidth: 3,
-    borderColor: '#6b5a32',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
+  captureButtonText: {
+    color: '#5d4d26',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
   },
-  buttonText: { color: '#5d4d26', fontSize: 16, fontWeight: '600' },
-  backButton: { marginTop: 24 },
-  backText: { fontSize: 16, color: '#5d4d26', fontWeight: '600' },
 });

@@ -1,18 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, InteractionManager, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
-import * as ImageManipulator from 'expo-image-manipulator';
-import { extractBlendshapes, blendshapeDistance, getInterOcularDistance, type BlendshapeResult } from '../services/BlendshapeService';
+import type { BlendshapeResult } from '../services/BlendshapeService';
+import { getInterOcularDistance } from '../services/BlendshapeService';
 import type { ProcessResult } from '../services/FaceComparisonService';
 import { saveFace, getFacesForRound, clearStoredFaces } from '../services/StorageService';
-import { GAME_CONFIG, BLENDSHAPE_DISTANCE_THRESHOLD, CAPTURE_MAX_WIDTH, INTER_OCULAR_ZOOM_THRESHOLD } from '../utils/constants';
+import { capturePhoto, flipAndSaveTemp, savePermImage, extractFeatures, compareAndDecide } from '../services/CaptureService';
+import { timed, logBenchmark, type BenchmarkEntry } from '../utils/benchmark';
 import { FaceOvalOverlay } from '../components/FaceOvalOverlay';
+import { PermissionGate, PermissionGateLoading } from '../components/PermissionGate';
 import { DebugScreen, type PreviousFaceDebug } from './DebugScreen';
 import { StrikeScreen } from './StrikeScreen';
 import { GameOverScreen, type StrikeDetail } from './GameOverScreen';
 import { useCountdown3251 } from '../hooks/useCountdown3251';
 import { useCamera } from '../context/CameraContext';
+import { usePermissionGate } from '../hooks/usePermissionGate';
 import type { FlowPhase } from '../context/FlowContext';
+import type { FrameEntry } from '../types/export';
 
 type GameState = 'playing' | 'processing' | 'debug' | 'strike' | 'gameOver';
 
@@ -52,7 +56,9 @@ export function GameScreen({ flowPhase, advance }: Props) {
   const countdownMs = gameParams.countdownMs;
   const gameStyle = gameParams.gameStyle ?? '321face';
 
-  const { cameraRef, cameraReady: cameraReadyFromContext, permission, requestPermission } = useCamera();
+  const { cameraRef, cameraReady: cameraReadyFromContext } = useCamera();
+  const goHome = useCallback(() => advance({ screen: 'home' }), [advance]);
+  const { status, gateMode, busy, onGrant, onCancel } = usePermissionGate(goHome);
 
   const [gameState, setGameState] = useState<GameState>('playing');
   const [roundIndex, setRoundIndex] = useState(playMode ? 1 : 0);
@@ -61,26 +67,19 @@ export function GameScreen({ flowPhase, advance }: Props) {
   const [captureData, setCaptureData] = useState<CaptureData | null>(null);
   const [resultFlash, setResultFlash] = useState<{
     imageUri: string;
-    label: 'TILT' | 'ZOOM' | 'SAME' | null;
+    label: 'TILT' | 'ZOOM' | 'SAME' | 'NFD' | null;
     resultsReady: boolean;
     pendingGameOver?: boolean;
-    /** Temp full-size file to delete when flash is cleared */
     tempPathToCleanup?: string;
   } | null>(null);
   const [lastBenchmarks, setLastBenchmarks] = useState<ProcessResult['benchmarks']>();
   const [baselineLandmarks, setBaselineLandmarks] = useState<{ x: number; y: number; z: number }[] | null>(null);
   const [baselineSourceSize, setBaselineSourceSize] = useState<{ width: number; height: number } | null>(null);
   const [overlaySize, setOverlaySize] = useState({ width: 0, height: 0 });
-  const [allFaceUris, setAllFaceUris] = useState<string[]>([]);
+  const [allFrameEntries, setAllFrameEntries] = useState<FrameEntry[]>([]);
   const cameraReady = cameraReadyFromContext;
-  console.log('[321FACE] GameScreen render', {
-    screen: flowPhase.screen,
-    hasBaselineUri: !!baselineImageUri,
-    uriPrefix: baselineImageUri?.slice(0, 80),
-    cameraReady,
-    modalCondition: !!(baselineImageUri && !cameraReady),
-  });
-  const { phase, label, start } = useCountdown3251(countdownMs);
+  const prePhases = gameStyle === 'snap' ? 1 : 3;
+  const { phase, facePhase, label, start, clear: clearCountdown } = useCountdown3251(countdownMs, prePhases);
   const gameStateRef = useRef<GameState>('playing');
   const roundIndexRef = useRef(playMode ? 1 : 0);
   const strikesRef = useRef(0);
@@ -100,7 +99,6 @@ export function GameScreen({ flowPhase, advance }: Props) {
     }
   }, [cameraReady, baselineImageUri, flowPhase.screen, gameParams, advance]);
 
-  // Load baseline landmarks and source size when we have previous faces (round > 0)
   useEffect(() => {
     if (roundIndex === 0) {
       setBaselineLandmarks(null);
@@ -129,117 +127,95 @@ export function GameScreen({ flowPhase, advance }: Props) {
 
   const captureAndProcess = useCallback(async (isPlayMode?: boolean) => {
     if (!cameraRef.current || gameStateRef.current !== 'playing') {
-      console.log('[321FACE] Guard:', { cam: !!cameraRef.current, state: gameStateRef.current });
       return;
     }
-    console.log('[321FACE] CAPTURE attempt', { playMode: !!isPlayMode, round: roundIndexRef.current + 1 });
     transition('processing');
 
-    try {
-      const photo = await cameraRef.current.takePictureAsync({ quality: 1, base64: false, shutterSound: false });
-      if (!photo?.uri) { transition('playing'); return; }
-      console.log('[321FACE] Captured photo dimensions:', photo.width, 'x', photo.height);
+    const bench: BenchmarkEntry[] = [];
+    const t0 = performance.now();
 
+    try {
       const docDir = FileSystem.documentDirectory;
       if (!docDir) { transition('playing'); return; }
-
       const ts = Date.now();
-      const tempLargePath = `${docDir}face_temp_large_${ts}.jpg`;
-      const permPath = `${docDir}face_${ts}.jpg`;
 
-      // 1. Flip full-size → temp (for blendshape extraction and result flash display)
-      const flippedFull = await ImageManipulator.manipulateAsync(
-        photo.uri,
-        [{ flip: ImageManipulator.FlipType.Horizontal }],
-        { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
-      );
-      await FileSystem.copyAsync({ from: flippedFull.uri, to: tempLargePath });
+      const { result: photo, ms: captureMs } = await timed('capture', () => capturePhoto(cameraRef));
+      bench.push({ label: 'capture', ms: captureMs });
+      if (!photo) { transition('playing'); return; }
+
+      const { result: flip, ms: flipMs } = await timed('flip', () => flipAndSaveTemp(photo.uri, docDir, ts));
+      bench.push({ label: 'flip', ms: flipMs });
 
       if (isPlayMode) {
         transition('playing');
+        clearCountdown();
         setResultFlash({
-          imageUri: tempLargePath,
+          imageUri: flip.tempLargePath,
           label: null,
           resultsReady: false,
-          tempPathToCleanup: tempLargePath,
+          tempPathToCleanup: flip.tempLargePath,
         });
       }
 
-      // 2. Create smaller permanent copy for storage and video export
-      if (photo.width > CAPTURE_MAX_WIDTH) {
-        const resized = await ImageManipulator.manipulateAsync(
-          tempLargePath,
-          [{ resize: { width: CAPTURE_MAX_WIDTH } }],
-          { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
-        );
-        await FileSystem.copyAsync({ from: resized.uri, to: permPath });
-      } else {
-        await FileSystem.copyAsync({ from: tempLargePath, to: permPath });
-      }
+      const { result: save, ms: saveMs } = await timed('save', () => savePermImage(flip.tempLargePath, photo.width, docDir, ts));
+      bench.push({ label: 'save', ms: saveMs });
 
-      // 3. Extract blendshapes from full-size image
-      const blendshapeResult = await extractBlendshapes(tempLargePath);
+      const { result: features, ms: extractMs } = await timed('extract', () => extractFeatures(flip.tempLargePath));
+      bench.push({ label: 'extract', ms: extractMs });
 
-      if (!blendshapeResult) {
-        console.log('[321FACE] CAPTURE no face', { imageUri: permPath });
-        await FileSystem.deleteAsync(tempLargePath, { idempotent: true });
-        await FileSystem.deleteAsync(permPath, { idempotent: true });
-        if (isPlayMode) setResultFlash(null);
-        transition('playing');
+      if (!features) {
+        if (isPlayMode) {
+          const newStrikes = strikesRef.current + 1;
+          const nfdEntry: StrikeDetail = {
+            type: 'nfd',
+            currentImageUri: save.permPath,
+            roundIndex: roundIndexRef.current,
+          };
+          setStrikeHistory((prev) => [...prev, nfdEntry]);
+          setStrikes(newStrikes);
+          const nfdRd = roundIndexRef.current;
+          roundIndexRef.current = nfdRd + 1;
+          setRoundIndex(nfdRd + 1);
+          clearCountdown();
+          setResultFlash({
+            imageUri: flip.tempLargePath,
+            label: 'NFD',
+            resultsReady: true,
+            pendingGameOver: newStrikes >= maxStrikes,
+            tempPathToCleanup: flip.tempLargePath,
+          });
+          if (newStrikes >= maxStrikes) {
+            setStrikes(0);
+          }
+        } else {
+          await FileSystem.deleteAsync(flip.tempLargePath, { idempotent: true });
+          await FileSystem.deleteAsync(save.permPath, { idempotent: true });
+          transition('playing');
+        }
         return;
       }
 
       const rd = roundIndexRef.current;
-      const previousFaces = await getFacesForRound(rd);
+      const { result: previousFaces, ms: loadMs } = await timed('loadFaces', () => getFacesForRound(rd));
+      bench.push({ label: 'loadFaces', ms: loadMs });
 
-      const perFaceDistances: number[] = [];
-      for (const prev of previousFaces) {
-        if (prev.blendshapes?.length) {
-          perFaceDistances.push(blendshapeDistance(blendshapeResult.scores, prev.blendshapes));
-        }
-      }
-      const minDist = perFaceDistances.length > 0 ? Math.min(...perFaceDistances) : null;
-      const pose = blendshapeResult.facePose;
-      const tiltThreshold = GAME_CONFIG.TILT_THRESHOLD_DEGREES;
-      const tiltStrike = pose && (
-        Math.abs(pose.pitchDeg) > tiltThreshold ||
-        Math.abs(pose.rollDeg) > tiltThreshold ||
-        Math.abs(pose.yawDeg) > tiltThreshold
+      const { result: decision, ms: compareMs } = await timed('compare', async () =>
+        compareAndDecide(features, previousFaces, { blendshapeThreshold, isPlayMode: !!isPlayMode })
       );
-      const blendshapeStrike = minDist != null && minDist < blendshapeThreshold;
+      bench.push({ label: 'compare', ms: compareMs });
 
-      const baseline = previousFaces[0];
-      const baselineIod = baseline?.interOcularDistance ?? 0;
-      const currentIod = getInterOcularDistance(blendshapeResult.faceLandmarks);
-      const zoomStrike = !!(
-        isPlayMode &&
-        baselineIod > 0 &&
-        currentIod > 0 &&
-        Math.abs(currentIod - baselineIod) / baselineIod > INTER_OCULAR_ZOOM_THRESHOLD
-      );
+      const totalMs = Math.round((performance.now() - t0) * 100) / 100;
+      logBenchmark('Pipeline', { steps: bench, totalMs });
 
-      const strike = isPlayMode ? (blendshapeStrike || !!tiltStrike || zoomStrike) : false;
-
-      const benchmarks: ProcessResult['benchmarks'] = {
-        mlKitMs: 0,
-        blendshapeMs: blendshapeResult.timingMs,
-      };
-
-      const scores: ProcessResult['scores'] = {};
-      if (minDist != null) scores.blendshape = { minDistance: minDist, perFace: perFaceDistances };
-      if (pose) scores.pose = { pitchDeg: pose.pitchDeg, rollDeg: pose.rollDeg, yawDeg: pose.yawDeg, tiltStrike: !!tiltStrike };
-      if (baselineIod > 0 && currentIod > 0) {
-        scores.interOcular = { baseline: baselineIod, current: currentIod, zoomStrike: !!zoomStrike };
-      }
-
+      const blendshapeResult = features.blendshapes;
       const result: ProcessResult = {
-        strike,
-        reason: strike ? (tiltStrike ? 'tilt' : zoomStrike ? 'zoom' : 'similar') : undefined,
-        benchmarks,
-        scores: Object.keys(scores).length > 0 ? scores : undefined,
+        strike: decision.strike,
+        reason: decision.reason,
+        benchmarks: decision.benchmarks,
+        scores: decision.scores,
       };
 
-      setLastBenchmarks(benchmarks);
+      setLastBenchmarks(decision.benchmarks);
 
       const prevDebug: PreviousFaceDebug[] = previousFaces.map((f) => ({
         imageUri: f.imageUri,
@@ -250,38 +226,28 @@ export function GameScreen({ flowPhase, advance }: Props) {
         round: f.roundIndex,
       }));
 
-      const logEntry = {
+      captureLog.current.push({
         timestamp: Date.now(),
         roundIndex: rd,
         inputHash: '',
         embedding: [],
         blendshapes: blendshapeResult.scores,
-        pose: pose ?? null,
+        pose: blendshapeResult.facePose ?? null,
         scores: result.scores,
         benchmarks: result.benchmarks,
-      };
-      captureLog.current.push(logEntry);
-
-      console.log('[321FACE] CAPTURE', {
-        playMode: !!isPlayMode,
-        round: rd + 1,
-        strike: result.strike,
-        reason: result.reason,
-        imageUri: permPath,
-        minDist: minDist ?? undefined,
-        tiltStrike: !!tiltStrike,
-        zoomStrike: !!zoomStrike,
       });
 
       if (isPlayMode) {
-        const flashLabel = strike ? (result.reason === 'tilt' ? 'TILT' : result.reason === 'zoom' ? 'ZOOM' : 'SAME') : null;
-        if (strike) {
+        const flashLabel = decision.strike
+          ? (decision.reason === 'tilt' ? 'TILT' : decision.reason === 'zoom' ? 'ZOOM' : decision.reason === 'nfd' ? 'NFD' : 'SAME')
+          : null;
+        if (decision.strike) {
           const newStrikes = strikesRef.current + 1;
-          const reason = result.reason ?? 'similar';
+          const reason = decision.reason ?? 'similar';
           const previousImageUri =
-            reason === 'similar' && perFaceDistances.length > 0
+            reason === 'similar' && decision.perFaceDistances.length > 0
               ? previousFaces[
-                  perFaceDistances.indexOf(Math.min(...perFaceDistances))
+                  decision.perFaceDistances.indexOf(Math.min(...decision.perFaceDistances))
                 ]?.imageUri
               : reason === 'tilt' || reason === 'zoom'
                 ? previousFaces[0]?.imageUri
@@ -289,29 +255,30 @@ export function GameScreen({ flowPhase, advance }: Props) {
 
           const newEntry: StrikeDetail = {
             type: reason,
-            currentImageUri: permPath,
+            currentImageUri: save.permPath,
             previousImageUri,
             currentBlendshapes: blendshapeResult.scores,
             roundIndex: rd,
           };
           setStrikeHistory((prev) => [...prev, newEntry]);
           setStrikes(newStrikes);
+          roundIndexRef.current = rd + 1;
+          setRoundIndex(rd + 1);
           setResultFlash({
-            imageUri: tempLargePath,
+            imageUri: flip.tempLargePath,
             label: flashLabel!,
             resultsReady: true,
             pendingGameOver: newStrikes >= maxStrikes,
-            tempPathToCleanup: tempLargePath,
+            tempPathToCleanup: flip.tempLargePath,
           });
           if (newStrikes >= maxStrikes) {
             setStrikes(0);
-            // Defer clearStoredFaces to handlePlayAgain so allFaceUris can be built for video export
           }
         } else {
           const savedIod = getInterOcularDistance(blendshapeResult.faceLandmarks);
           await saveFace({
             roundIndex: rd,
-            imageUri: permPath,
+            imageUri: save.permPath,
             blendshapes: blendshapeResult.scores,
             faceLandmarks: blendshapeResult.faceLandmarks,
             facePose: blendshapeResult.facePose,
@@ -323,16 +290,16 @@ export function GameScreen({ flowPhase, advance }: Props) {
           });
           transition('playing', rd + 1);
           setResultFlash({
-            imageUri: tempLargePath,
+            imageUri: flip.tempLargePath,
             label: null,
             resultsReady: true,
-            tempPathToCleanup: tempLargePath,
+            tempPathToCleanup: flip.tempLargePath,
           });
         }
       } else {
         setCaptureData({
-          rawImageUri: permPath,
-          faceNetInputUri: permPath,
+          rawImageUri: save.permPath,
+          faceNetInputUri: save.permPath,
           inputHash: '',
           blendshapes: blendshapeResult,
           result,
@@ -352,7 +319,6 @@ export function GameScreen({ flowPhase, advance }: Props) {
 
     if (data.result.strike) {
       transition('strike');
-      // Keep captureData for StrikeScreen
     } else {
       setCaptureData(null);
       const rd = roundIndexRef.current;
@@ -390,7 +356,6 @@ export function GameScreen({ flowPhase, advance }: Props) {
     }
   }, [strikes, maxStrikes, advance, gameParams]);
 
-  // Result flash: 0.5s from when results are ready, then dismiss and allow countdown to start
   useEffect(() => {
     if (!resultFlash || !resultFlash.resultsReady) return;
     const id = setTimeout(async () => {
@@ -401,24 +366,32 @@ export function GameScreen({ flowPhase, advance }: Props) {
       setResultFlash(null);
       if (wasGameOver) {
         const stored = await getFacesForRound(roundIndexRef.current);
-        const strikeItems = strikeHistory.map((s) => ({ roundIndex: s.roundIndex, imageUri: s.currentImageUri, isStrike: true as const }));
-        const passItems = stored.map((f) => ({ roundIndex: f.roundIndex, imageUri: f.imageUri, isStrike: false as const }));
-        const merged = [...strikeItems, ...passItems]
+        const strikeEntries: FrameEntry[] = strikeHistory
+          .map((s) => ({
+            uri: s.currentImageUri,
+            role: 'strike' as const,
+            strikeType: s.type,
+            roundIndex: s.roundIndex,
+            blendshapes: s.currentBlendshapes ?? [],
+          }));
+        const passEntries: FrameEntry[] = stored.map((f) => ({
+          uri: f.imageUri,
+          role: 'pass' as const,
+          roundIndex: f.roundIndex,
+          blendshapes: f.blendshapes ?? [],
+        }));
+        const merged = [...strikeEntries, ...passEntries]
           .sort((a, b) => {
             if (a.roundIndex !== b.roundIndex) return a.roundIndex - b.roundIndex;
-            return a.isStrike ? -1 : 1; // strike before pass in same round
-          })
-          .map((x) => x.imageUri);
-        setAllFaceUris(merged);
+            return a.role === 'strike' ? -1 : 1;
+          });
+        setAllFrameEntries(merged);
         transition('gameOver');
       }
     }, 500);
     return () => clearTimeout(id);
   }, [resultFlash, strikeHistory]);
 
-  // Auto-start countdown in play mode (no manual capture).
-  // Start when we have something to show: camera ready, or baseline image (while camera warms up).
-  // On first entry (round 1), also defer until after layout for full countdown visibility.
   useEffect(() => {
     if (
       (cameraReady || baselineImageUri) &&
@@ -437,23 +410,11 @@ export function GameScreen({ flowPhase, advance }: Props) {
     }
   }, [cameraReady, baselineImageUri, playMode, gameState, phase, roundIndex, resultFlash, start, captureAndProcess]);
 
-  // When we have baselineImageUri (coming from Baseline Captured), show it immediately
-  // instead of a black loading screen while permission resolves.
-  if (!permission && !baselineImageUri) {
-    return <View style={styles.center}><ActivityIndicator size="large" /></View>;
-  }
+  // --- Permission gate ---
+  if (status === 'loading') return <PermissionGateLoading />;
+  if (status === 'gate') return <PermissionGate gateMode={gateMode} busy={busy} onGrant={onGrant} onCancel={onCancel} />;
 
-  if (permission && !permission.granted) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.permissionText}>Camera permission is required</Text>
-        <TouchableOpacity style={styles.button} onPress={requestPermission}>
-          <Text style={styles.buttonText}>Grant Permission</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
+  // --- Game UI ---
   const showCameraUI = (cameraReady || baselineImageUri) && (gameState === 'playing' || gameState === 'processing' || !!resultFlash);
 
   return (
@@ -481,7 +442,7 @@ export function GameScreen({ flowPhase, advance }: Props) {
               </View>
             </View>
             {(() => {
-              const displayLabel = gameStyle === 'snap' ? (phase === 3 ? 'SNAP' : '') : label;
+              const displayLabel = gameStyle === 'snap' ? (phase === facePhase ? 'SNAP' : '') : label;
               return displayLabel ? (
                 <View style={styles.countdownBox}>
                   <View style={styles.countdownTextContainer}>
@@ -522,7 +483,7 @@ export function GameScreen({ flowPhase, advance }: Props) {
             setOverlaySize({ width, height });
           }}
         >
-          {label && baselineLandmarks && overlaySize.width > 0 && baselineSourceSize && !resultFlash && (
+          {label && phase !== facePhase && baselineLandmarks && overlaySize.width > 0 && baselineSourceSize && !resultFlash && (
             <FaceOvalOverlay
               landmarks={baselineLandmarks}
               width={overlaySize.width}
@@ -546,7 +507,7 @@ export function GameScreen({ flowPhase, advance }: Props) {
             </View>
           </View>
           {(() => {
-            const displayLabel = gameStyle === 'snap' ? (phase === 3 ? 'SNAP' : '') : label;
+            const displayLabel = gameStyle === 'snap' ? (phase === facePhase ? 'SNAP' : '') : label;
             return displayLabel && !resultFlash ? (
               <View style={styles.countdownBox}>
                 <View style={styles.countdownTextContainer}>
@@ -613,7 +574,7 @@ export function GameScreen({ flowPhase, advance }: Props) {
 
       {gameState === 'gameOver' && strikeHistory.length > 0 && (
         <View style={styles.fullOverlay}>
-          <GameOverScreen strikes={strikeHistory} totalFaces={roundIndex} allFaceUris={allFaceUris} onPlayAgain={handlePlayAgain} />
+          <GameOverScreen strikes={strikeHistory} allFrameEntries={allFrameEntries} onPlayAgain={handlePlayAgain} />
         </View>
       )}
     </View>
@@ -703,10 +664,6 @@ const styles = StyleSheet.create({
     width: 72, height: 72, borderRadius: 36,
     backgroundColor: '#fff', borderWidth: 4, borderColor: '#000',
   },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  permissionText: { fontSize: 16, marginBottom: 16 },
-  button: { backgroundColor: '#000', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8 },
-  buttonText: { color: '#fff', fontSize: 16 },
   benchmarkStrip: {
     position: 'absolute', bottom: 100, left: 8, right: 8,
     backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4,

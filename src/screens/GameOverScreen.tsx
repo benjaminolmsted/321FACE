@@ -1,32 +1,39 @@
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
-import { cleanupTempMarkedPaths, markFaceUrisWithLabels } from '../services/ImageMarkingService';
-import { imagesToVideo } from '../services/VideoExportService';
+import { concatListToVideo } from '../services/VideoExportService';
+import {
+  buildExportManifest,
+  renderManifestOverlays,
+  buildConcatList,
+  cleanupExportDir,
+} from '../services/ExportManifestService';
+import { timed, logBenchmark, type BenchmarkEntry } from '../utils/benchmark';
+import { DEFAULT_MANIFEST_CONFIG, type FrameEntry, type FrameOrdering, type ExportManifest } from '../types/export';
 
 export type StrikeDetail = {
-  type: 'similar' | 'tilt' | 'zoom';
+  type: 'similar' | 'tilt' | 'zoom' | 'nfd';
   currentImageUri: string;
   previousImageUri?: string;
   currentBlendshapes?: number[];
-  /** Round when strike occurred; used for temporal ordering (strike before pass in same round) */
   roundIndex: number;
 };
 
 type Props = {
   strikes: StrikeDetail[];
-  totalFaces: number;
-  /** Faces in temporal order (strike before pass in same round) for video export */
-  allFaceUris: string[];
+  allFrameEntries: FrameEntry[];
   onPlayAgain: () => void;
 };
 
 type ExportPhase = 'idle' | 'preparing' | 'preview' | 'creating';
 
-export function GameOverScreen({ strikes, totalFaces, allFaceUris, onPlayAgain }: Props) {
+export function GameOverScreen({ strikes, allFrameEntries, onPlayAgain }: Props) {
+  const totalFaces = allFrameEntries.filter((e) => e.role === 'pass').length;
   const [exporting, setExporting] = useState(false);
   const [exportPhase, setExportPhase] = useState<ExportPhase>('idle');
-  const [preparedUris, setPreparedUris] = useState<string[]>([]);
+  const [ordering, setOrdering] = useState<FrameOrdering>('chronological');
+  const [preparedManifest, setPreparedManifest] = useState<ExportManifest | null>(null);
   const [exportTempPaths, setExportTempPaths] = useState<string[]>([]);
 
   const handleExportImages = useCallback(async () => {
@@ -38,7 +45,6 @@ export function GameOverScreen({ strikes, totalFaces, allFaceUris, onPlayAgain }
     if (originalUris.size === 0) return;
 
     setExporting(true);
-    let tempPaths: string[] = [];
     try {
       const { status } = await MediaLibrary.requestPermissionsAsync(true);
       if (status !== 'granted') {
@@ -46,19 +52,13 @@ export function GameOverScreen({ strikes, totalFaces, allFaceUris, onPlayAgain }
         return;
       }
 
-      const { uris: markedUris, tempPaths: markedTemp } = await markFaceUrisWithLabels(allFaceUris, strikes);
-      tempPaths = markedTemp;
-      const uriToMarked = new Map<string, string>();
-      allFaceUris.forEach((orig, i) => uriToMarked.set(orig, markedUris[i]));
-
       let saved = 0;
-      for (const orig of originalUris) {
-        const toSave = uriToMarked.get(orig) ?? orig;
+      for (const uri of originalUris) {
         try {
-          await MediaLibrary.saveToLibraryAsync(toSave);
+          await MediaLibrary.saveToLibraryAsync(uri);
           saved++;
         } catch (err) {
-          console.warn('[GameOver] Failed to save:', toSave, err);
+          console.warn('[GameOver] Failed to save:', uri, err);
         }
       }
       Alert.alert('Export Complete', `Saved ${saved} image${saved !== 1 ? 's' : ''} to your photo library.`);
@@ -66,13 +66,12 @@ export function GameOverScreen({ strikes, totalFaces, allFaceUris, onPlayAgain }
       console.error('[GameOver] Export error:', err);
       Alert.alert('Export Failed', 'Could not save images to photo library.');
     } finally {
-      await cleanupTempMarkedPaths(tempPaths);
       setExporting(false);
     }
-  }, [strikes, allFaceUris]);
+  }, [strikes]);
 
   const handleExportVideo = useCallback(async () => {
-    if (allFaceUris.length === 0) return;
+    if (allFrameEntries.length === 0) return;
     const { status } = await MediaLibrary.requestPermissionsAsync(true);
     if (status !== 'granted') {
       Alert.alert('Permission Required', 'Photo library access is needed to save the video.');
@@ -80,9 +79,17 @@ export function GameOverScreen({ strikes, totalFaces, allFaceUris, onPlayAgain }
     }
     setExportPhase('preparing');
     try {
-      const { uris, tempPaths } = await markFaceUrisWithLabels(allFaceUris, strikes);
-      console.log('[GameOver] Overlay pass done, prepared', uris.length, 'frames');
-      setPreparedUris(uris);
+      const docDir = FileSystem.documentDirectory;
+      if (!docDir) throw new Error('No document directory');
+
+      const config = { ...DEFAULT_MANIFEST_CONFIG, ordering };
+      const manifest = buildExportManifest(allFrameEntries, config);
+
+      const { result: { manifest: overlaid, tempPaths } } = await timed('overlay', () =>
+        renderManifestOverlays(manifest, docDir)
+      );
+
+      setPreparedManifest(overlaid);
       setExportTempPaths(tempPaths);
       setExportPhase('preview');
     } catch (err) {
@@ -90,41 +97,54 @@ export function GameOverScreen({ strikes, totalFaces, allFaceUris, onPlayAgain }
       Alert.alert('Export Failed', 'Could not prepare images for export.');
       setExportPhase('idle');
     }
-  }, [allFaceUris, strikes]);
+  }, [allFrameEntries, ordering]);
 
-  const handleCancelExport = useCallback(() => {
-    cleanupTempMarkedPaths(exportTempPaths);
+  const handleCancelExport = useCallback(async () => {
+    const docDir = FileSystem.documentDirectory;
+    if (docDir) await cleanupExportDir(docDir);
     setExportPhase('idle');
-    setPreparedUris([]);
+    setPreparedManifest(null);
     setExportTempPaths([]);
-  }, [exportTempPaths]);
+  }, []);
 
   const handleCreateVideo = useCallback(async () => {
-    if (preparedUris.length === 0) return;
+    if (!preparedManifest) return;
     setExportPhase('creating');
     try {
-      const videoUri = await imagesToVideo(
-        preparedUris,
-        undefined,
-        undefined,
-        require('../../assets/vaporwave.mp3')
+      const bench: BenchmarkEntry[] = [];
+      const concatContent = buildConcatList(preparedManifest.frames);
+      const { result: videoUri, ms: ffmpegMs } = await timed('ffmpeg', () =>
+        concatListToVideo(
+          concatContent,
+          undefined,
+          require('../../assets/vaporwave.mp3')
+        )
       );
-      await MediaLibrary.saveToLibraryAsync(videoUri);
+      bench.push({ label: 'ffmpeg', ms: ffmpegMs });
+      const { ms: saveMs } = await timed('saveToLibrary', () =>
+        MediaLibrary.saveToLibraryAsync(videoUri)
+      );
+      bench.push({ label: 'saveToLibrary', ms: saveMs });
+      const totalMs = bench.reduce((sum, b) => sum + b.ms, 0);
+      logBenchmark('Export', { steps: bench, totalMs });
       Alert.alert('Export Complete', 'Video saved to your photo library.');
     } catch (err) {
       console.error('[GameOver] Video export error:', err);
       Alert.alert('Video Export Failed', 'Could not create or save the video.');
     } finally {
-      await cleanupTempMarkedPaths(exportTempPaths);
+      const docDir = FileSystem.documentDirectory;
+      if (docDir) await cleanupExportDir(docDir);
       setExportPhase('idle');
-      setPreparedUris([]);
+      setPreparedManifest(null);
       setExportTempPaths([]);
     }
-  }, [preparedUris, exportTempPaths]);
+  }, [preparedManifest]);
 
-  const canExportVideo = allFaceUris.length > 0;
+  const canExportVideo = allFrameEntries.length > 0;
+  const baselineUri = allFrameEntries[0]?.uri;
 
-  const uriToFrame = Object.fromEntries(allFaceUris.map((uri, i) => [uri, i + 1]));
+  const allFaceUris = allFrameEntries.map((e) => e.uri);
+  const uriToFrame = Object.fromEntries(allFrameEntries.map((e) => [e.uri, e.roundIndex + 1]));
 
   const ImageWithBadge = ({ uri, style }: { uri: string; style?: object }) => {
     const frame = uriToFrame[uri];
@@ -155,21 +175,35 @@ export function GameOverScreen({ strikes, totalFaces, allFaceUris, onPlayAgain }
           </Text>
         </View>
       )}
-      {exportPhase === 'preview' && preparedUris.length > 0 && (
+      {exportPhase === 'preview' && preparedManifest && (
         <View style={styles.exportPreviewOverlay}>
-          <Text style={styles.exportPreviewTitle}>Frames to export ({preparedUris.length})</Text>
+          <Text style={styles.exportPreviewTitle}>
+            {preparedManifest.totalFrameCount} frames ({preparedManifest.totalDuration.toFixed(1)}s)
+            {ordering === 'nearest-neighbor' ? ' — NN order' : ''}
+          </Text>
           <ScrollView
             horizontal
             style={styles.exportPreviewScroll}
             contentContainerStyle={styles.exportPreviewScrollContent}
             showsHorizontalScrollIndicator
           >
-            {preparedUris.map((uri, i) => (
+            {preparedManifest.frames.map((frame, i) => (
               <View key={i} style={styles.exportPreviewFrame}>
-                <Image source={{ uri }} style={styles.exportPreviewImage} resizeMode="cover" />
+                <Image
+                  source={{ uri: frame.overlayUri ?? frame.sourceUri }}
+                  style={styles.exportPreviewImage}
+                  resizeMode="cover"
+                />
                 <View style={styles.exportPreviewBadge}>
-                  <Text style={styles.frameBadgeText}>{i + 1}</Text>
+                  <Text style={styles.frameBadgeText}>
+                    {frame.label ? `${i + 1} ${frame.label}` : `${i + 1}`}
+                  </Text>
                 </View>
+                {frame.repeat > 1 && (
+                  <View style={styles.repeatBadge}>
+                    <Text style={styles.frameBadgeText}>×{frame.repeat}</Text>
+                  </View>
+                )}
               </View>
             ))}
           </ScrollView>
@@ -203,7 +237,12 @@ export function GameOverScreen({ strikes, totalFaces, allFaceUris, onPlayAgain }
                 </Text>
               </View>
               <View style={styles.strikeContent}>
-                {(strike.type === 'similar' || strike.type === 'tilt' || strike.type === 'zoom') && strike.previousImageUri ? (
+                {strike.type === 'nfd' ? (
+                  <View style={styles.similarRow}>
+                    {baselineUri ? <ImageWithBadge uri={baselineUri} /> : null}
+                    <ImageWithBadge uri={strike.currentImageUri} />
+                  </View>
+                ) : (strike.type === 'similar' || strike.type === 'tilt' || strike.type === 'zoom') && strike.previousImageUri ? (
                   <View style={styles.similarRow}>
                     <ImageWithBadge uri={strike.previousImageUri} />
                     <ImageWithBadge uri={strike.currentImageUri} />
@@ -225,6 +264,18 @@ export function GameOverScreen({ strikes, totalFaces, allFaceUris, onPlayAgain }
       <TouchableOpacity style={styles.button} onPress={onPlayAgain} activeOpacity={0.8}>
         <Text style={[styles.buttonText, styles.playAgainButtonText]}>PLAY AGAIN</Text>
       </TouchableOpacity>
+
+      {canExportVideo && (
+        <View style={styles.orderingRow}>
+          <Text style={styles.orderingLabel}>Smooth faces (NN)</Text>
+          <Switch
+            value={ordering === 'nearest-neighbor'}
+            onValueChange={(v) => setOrdering(v ? 'nearest-neighbor' : 'chronological')}
+            trackColor={{ false: '#555', true: '#d4b86a' }}
+            thumbColor={ordering === 'nearest-neighbor' ? '#e6c44d' : '#ccc'}
+          />
+        </View>
+      )}
 
       <TouchableOpacity
         style={[styles.button, styles.exportButton, (exportPhase !== 'idle' || exporting) && styles.buttonDisabled]}
@@ -340,6 +391,31 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 6,
   },
+  repeatBadge: {
+    position: 'absolute',
+    bottom: 4,
+    right: 4,
+    backgroundColor: 'rgba(107, 90, 50, 0.9)',
+    borderRadius: 8,
+    minWidth: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+  },
+  orderingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    marginBottom: 12,
+    width: '100%',
+  },
+  orderingLabel: {
+    color: '#e6c44d',
+    fontSize: 16,
+    fontWeight: '600',
+  },
   exportPreviewButtons: {
     marginTop: 24,
     gap: 12,
@@ -452,6 +528,22 @@ const styles = StyleSheet.create({
   contentBox: { alignItems: 'center' },
   contentText: { fontSize: 18, fontWeight: 'bold', color: '#c00' },
   contentSubtext: { fontSize: 14, color: '#000', marginBottom: 8 },
+  nfdPlaceholder: {
+    width: 100,
+    height: 100,
+    borderRadius: 12,
+    backgroundColor: 'rgba(200, 200, 200, 0.3)',
+    borderWidth: 2,
+    borderColor: '#c00',
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nfdPlaceholderText: {
+    fontSize: 48,
+    fontWeight: 'bold',
+    color: '#c00',
+  },
   singleImage: { width: 120, height: 120, borderRadius: 8, marginTop: 4 },
   button: {
     backgroundColor: '#d4b86a',

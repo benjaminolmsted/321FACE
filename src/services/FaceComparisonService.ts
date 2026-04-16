@@ -10,7 +10,7 @@ const strategies = {
   embedding: new EmbeddingComparisonStrategy(),
 };
 
-export type StrikeReason = 'similar' | 'tilt' | 'zoom';
+export type StrikeReason = 'similar' | 'tilt' | 'zoom' | 'nfd';
 
 export interface ProcessResult {
   strike: boolean;

@@ -137,7 +137,6 @@ export async function warmupBlendshapes(imagePath: string): Promise<void> {
       minFacePresenceConfidence: 0.1,
     });
     _warmedUp = true;
-    console.log(`[BlendshapeService] warmup done in ${(performance.now() - t0).toFixed(0)}ms`);
   } catch (err) {
     console.warn('[BlendshapeService] warmup failed (non-fatal):', err);
   }
@@ -177,9 +176,6 @@ export async function extractBlendshapes(
       ? matrixToEulerDeg(Array.from(matrixData))
       : undefined;
     const timingMs = performance.now() - t0;
-
-    const nonZero = scores.filter((s) => s > 0).length;
-    console.log(`[BlendshapeService] ${nonZero}/52 non-zero scores, ${timingMs.toFixed(0)}ms`);
 
     return {
       scores,

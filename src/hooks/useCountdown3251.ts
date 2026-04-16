@@ -1,21 +1,24 @@
 /**
- * Countdown: 3... 2.. 1. FACE.
- * Phase 0–2: numbers. Phase 3: FACE (triggers onFace callback).
- * totalMs configurable; for SNAP mode use short duration (e.g. 400ms).
+ * Countdown hook with configurable number of pre-capture phases.
+ *
+ * 321face mode (prePhases=3, totalMs=1252):  3 → 2 → 1 → FACE  (313ms each)
+ * Snap mode    (prePhases=1, totalMs=626):   (silent) → SNAP    (313ms each)
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-export const COUNTDOWN_TOTAL_MS_DEFAULT = 1250;
+export const COUNTDOWN_321_MS = 1252;
+export const COUNTDOWN_SNAP_MS = 626;
 export const COUNTDOWN_LABELS = ['3', '2', '1', 'FACE'] as const;
-export type CountdownPhase = 0 | 1 | 2 | 3 | null;
 
 type Callbacks = {
   onFace?: () => void;
   onComplete?: () => void;
 };
 
-export function useCountdown3251(totalMs = COUNTDOWN_TOTAL_MS_DEFAULT) {
-  const [phase, setPhase] = useState<CountdownPhase>(null);
+export function useCountdown3251(totalMs: number, prePhases = 3) {
+  const totalPhases = prePhases + 1;
+  const facePhase = prePhases;
+  const [phase, setPhase] = useState<number | null>(null);
   const callbacksRef = useRef<Callbacks>({});
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
@@ -27,36 +30,43 @@ export function useCountdown3251(totalMs = COUNTDOWN_TOTAL_MS_DEFAULT) {
   const start = useCallback((opts?: Callbacks) => {
     clearTimers();
     callbacksRef.current = opts ?? {};
-    const phaseMs = totalMs / 4;
+    const phaseMs = totalMs / totalPhases;
     setPhase(0);
 
     const push = (id: ReturnType<typeof setTimeout>) => {
       timersRef.current.push(id);
     };
 
-    push(setTimeout(() => setPhase(1), phaseMs));
-    push(setTimeout(() => setPhase(2), phaseMs * 2));
+    for (let p = 1; p < facePhase; p++) {
+      const target = p;
+      push(setTimeout(() => setPhase(target), phaseMs * p));
+    }
+
     push(
       setTimeout(() => {
-        setPhase(3);
+        setPhase(facePhase);
         callbacksRef.current.onFace?.();
-      }, phaseMs * 3)
+      }, phaseMs * facePhase)
     );
-    push(
-      setTimeout(() => {
-        setPhase(null);
-        callbacksRef.current.onComplete?.();
-        clearTimers();
-      }, totalMs)
-    );
-  }, [clearTimers, totalMs]);
+  }, [clearTimers, totalMs, totalPhases, facePhase]);
+
+  const clear = useCallback(() => {
+    clearTimers();
+    setPhase(null);
+  }, [clearTimers]);
 
   useEffect(() => clearTimers, [clearTimers]);
 
+  const label = phase !== null && phase < COUNTDOWN_LABELS.length
+    ? COUNTDOWN_LABELS[phase]
+    : null;
+
   return {
     phase,
-    label: phase !== null ? COUNTDOWN_LABELS[phase] : null,
+    facePhase,
+    label,
     isRunning: phase !== null,
     start,
+    clear,
   };
 }

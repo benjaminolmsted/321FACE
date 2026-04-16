@@ -18,7 +18,8 @@ export type PlayMode = 'subtle' | 'balanced' | 'extreme';
 
 export type GameStyle = '321face' | 'snap';
 
-const COUNTDOWN_MS = 1250;
+const COUNTDOWN_321_MS = 1252;
+const COUNTDOWN_SNAP_MS = 626;
 const GAME_STYLE_KEY = '@321face_gameStyle';
 
 type Props = {
@@ -54,7 +55,8 @@ export function HomeScreen({ advance }: Props) {
   };
 
   const onPlay = () => {
-    advance({ screen: 'baseline', phase: 'capture', gameParams: buildGameParams(playMode, COUNTDOWN_MS, false, gameStyle) });
+    const cdMs = gameStyle === 'snap' ? COUNTDOWN_SNAP_MS : COUNTDOWN_321_MS;
+    advance({ screen: 'baseline', phase: 'capture', gameParams: buildGameParams(playMode, cdMs, false, gameStyle) });
   };
 
   return (
@@ -68,7 +70,7 @@ export function HomeScreen({ advance }: Props) {
         <TouchableOpacity
           style={styles.rulesButton}
           onPress={() => setRulesVisible(true)}
-          onLongPress={() => advance({ screen: 'baseline', phase: 'capture', gameParams: buildGameParams('balanced', COUNTDOWN_MS, true, gameStyle) })}
+          onLongPress={() => advance({ screen: 'baseline', phase: 'capture', gameParams: buildGameParams('balanced', COUNTDOWN_321_MS, true, gameStyle) })}
         >
           <Text style={styles.rulesButtonText}>?</Text>
         </TouchableOpacity>
@@ -152,17 +154,25 @@ export function HomeScreen({ advance }: Props) {
             <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
               <Text style={styles.modalTitle}>GAMEPLAY</Text>
               <Text style={styles.modalBody}>
-                1) Take a baseline photo. This photo sets the pose for the round. Tilt your head too much from baseline: get a STRIKE! Zoom in or out too much? STRIKE!
+                1) Take a baseline photo. This photo sets the baseline pose for the round.
                 {'\n\n'}
-                2) Make a unique FACE. If your face is too similar to a previous face: STRIKE.
+                2) After the countdown, make a different face. If the captured face is too similar to a previously captured face, you get a STRIKE.
+                {'\n\n'}
+                -Tilt your head too much from the baseline: get a STRIKE!
+                {'\n\n'}
+                -Zoom in or out too much from the baseline? STRIKE!
+                {'\n\n'}
+                The countdown in COUNTDOWN mode is 3-2-1-FACE, with the capture on FACE
+                {'\n'}
+                {'\n'}
+                In SNAP mode, the facial outline is shown briefly before SNAP. The capture happens on SNAP, so be snappy.
               </Text>
               <Text style={[styles.modalTitle, styles.modalSection]}>STRIKE LIMITS</Text>
               <Text style={styles.modalBody}>
-                Subtle — 3 strikes{'\n'}
-                Balanced — 2 strikes{'\n'}
+                Balanced — 3 strikes{'\n'}
                 Extreme — 1 strike
                 {'\n\n'}
-                What is considered similar differs in each mode.
+                Your facial differences must be more extreme in Extreme.
               </Text>
               <TouchableOpacity style={styles.modalClose} onPress={() => setRulesVisible(false)} activeOpacity={0.8}>
                 <Text style={styles.modalCloseText}>Done</Text>
@@ -342,7 +352,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 12,
     marginTop: 24,
-    alignSelf: 'flex-start',
+    alignSelf: 'flex-end',
   },
   modalCloseText: {
     color: '#fff',

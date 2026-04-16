@@ -2,7 +2,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import Marker, { Position } from 'react-native-image-marker';
 
 export type StrikeDetailForMarking = {
-  type: 'similar' | 'tilt' | 'zoom';
+  type: 'similar' | 'tilt' | 'zoom' | 'nfd';
   currentImageUri: string;
 };
 
@@ -11,6 +11,7 @@ const STRIKE_LABELS: Record<StrikeDetailForMarking['type'], string> = {
   similar: 'SAME',
   tilt: 'TILT',
   zoom: 'ZOOM',
+  nfd: 'NFD',
 };
 
 const GOLD = '#e6c44d';

@@ -10,6 +10,7 @@ import { BaselineCaptureScreen } from './src/screens/BaselineCaptureScreen';
 import { FlowProvider, useFlow } from './src/context/FlowContext';
 import { CameraProvider } from './src/context/CameraContext';
 import { warmupBlendshapes } from './src/services/BlendshapeService';
+import { timed, logBenchmark } from './src/utils/benchmark';
 
 function FlowRouter() {
   const { flowPhase, advance } = useFlow();
@@ -40,7 +41,6 @@ function FlowRouter() {
     return <BaselineCaptureScreen flowPhase={flowPhase} advance={advance} />;
   }
   if (flowPhase.screen === 'gameLoading' || flowPhase.screen === 'game') {
-    console.log('[321FACE] FlowRouter rendering GameScreen', { screen: flowPhase.screen });
     return <GameScreen flowPhase={flowPhase} advance={advance} />;
   }
   return null;
@@ -84,9 +84,17 @@ export default function App() {
     let cancelled = false;
     (async () => {
       try {
-        const [asset] = await Asset.loadAsync(require('./assets/warmup.png'));
+        const { result: [asset], ms: assetMs } = await timed('loadAsset', () =>
+          Asset.loadAsync(require('./assets/warmup.png'))
+        );
         if (cancelled || !asset?.localUri) return;
-        await warmupBlendshapes(asset.localUri);
+        const { ms: warmupMs } = await timed('warmupBlendshapes', () =>
+          warmupBlendshapes(asset.localUri!)
+        );
+        logBenchmark('Warmup', {
+          steps: [{ label: 'loadAsset', ms: assetMs }, { label: 'mediapipe', ms: warmupMs }],
+          totalMs: assetMs + warmupMs,
+        });
       } catch {
         // Non-fatal: warmup failed, first capture will be slower
       } finally {
