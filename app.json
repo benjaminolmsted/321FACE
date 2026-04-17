@@ -74,7 +74,9 @@
       "./plugins/withAsyncStorageMaven",
       "./plugins/withFfmpegFlatDir",
       "./plugins/withDebugAppName",
-      "./plugins/withDebugApplicationId"
+      "./plugins/withDebugApplicationId",
+      ["react-native-share", {}],
+      "./plugins/withReactNativeShare"
     ],
     "web": {
       "favicon": "./assets/favicon.png"

@@ -25,6 +25,25 @@ const STRIKE_LABELS: Record<string, string> = {
 const GOLD = '#e6c44d';
 const RED = '#c00';
 const SHADOW_STYLE = { dx: 2, dy: 2, radius: 5, color: '#000000' };
+const OVERLAY_FONT_SIZE = 360;
+
+// Approximate character widths as a fraction of fontSize for bold system font.
+// Measured from Roboto Bold / SF Pro Bold at large sizes.
+const CHAR_WIDTH: Record<string, number> = {
+  '1': 0.40, '2': 0.55, '3': 0.55,
+  'A': 0.65, 'C': 0.62, 'D': 0.68, 'E': 0.55, 'F': 0.53,
+  'I': 0.30, 'L': 0.52, 'M': 0.80, 'N': 0.68, 'O': 0.70,
+  'S': 0.58, 'T': 0.58, 'Z': 0.58,
+};
+const DEFAULT_CHAR_WIDTH = 0.60;
+
+function estimateTextWidth(text: string, fontSize: number): number {
+  let width = 0;
+  for (const ch of text) {
+    width += (CHAR_WIDTH[ch] ?? DEFAULT_CHAR_WIDTH) * fontSize;
+  }
+  return width;
+}
 
 // ---------------------------------------------------------------------------
 // Nearest-neighbor reordering
@@ -130,16 +149,18 @@ export async function renderManifestOverlays(
     const { result: overlayUri, ms } = await timed(stepLabel, async () => {
       const { width: imgW, height: imgH } = await getImageSize(frame.sourceUri);
       const filename = `321FACE_overlay_${ts}_${i}`;
+      const textWidth = estimateTextWidth(frame.label!, OVERLAY_FONT_SIZE);
+      const centeredX = Math.max(0, (imgW - textWidth) / 2);
+
       const markedUri = await Marker.markText({
         backgroundImage: { src: frame.sourceUri, scale: 1 },
         watermarkTexts: [{
           text: frame.label!,
-          position: { X: imgW / 2, Y: imgH / 3 },
+          position: { X: centeredX, Y: imgH / 3 },
           style: {
             color: frame.labelColor ?? GOLD,
-            fontSize: 360,
+            fontSize: OVERLAY_FONT_SIZE,
             bold: true,
-            textAlign: 'center',
             shadowStyle: SHADOW_STYLE,
           },
         }],

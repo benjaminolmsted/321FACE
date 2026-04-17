@@ -45,6 +45,7 @@
     "expo-linear-gradient": "~14.0.0",
     "expo-media-library": "^18.2.1",
     "expo-navigation-bar": "~4.0.0",
+    "expo-sharing": "~14.0.8",
     "expo-status-bar": "~3.0.9",
     "react": "19.1.0",
     "react-native": "0.81.5",
@@ -54,6 +55,7 @@
     "react-native-mediapipe": "^0.6.0",
     "react-native-safe-area-context": "^5.6.2",
     "react-native-screens": "^4.24.0",
+    "react-native-share": "^12.2.6",
     "react-native-svg": "^15.15.3",
     "react-native-vision-camera": "^4.7.3",
     "react-native-worklets-core": "^1.6.3"

@@ -346,9 +346,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   captureButton: {
-    width: 83,
-    height: 83,
-    borderRadius: 42,
+    width: 90,
+    height: 90,
+    borderRadius: 45,
     backgroundColor: '#d4b86a',
     borderWidth: 4,
     borderColor: '#6b5a32',
@@ -357,7 +357,7 @@ const styles = StyleSheet.create({
   },
   captureButtonText: {
     color: '#5d4d26',
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '800',
     letterSpacing: 1,
   },
