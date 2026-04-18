@@ -25,9 +25,14 @@ const withFfmpegFlatDir = (config) => {
       }
 
       // Insert before the closing "  }" of allprojects.repositories
-      const closingRepos = content.indexOf('  }\n}\n');
+      const allprojectsIdx = content.indexOf('allprojects');
+      if (allprojectsIdx === -1) {
+        console.warn('[withFfmpegFlatDir] Could not find allprojects block');
+        return config;
+      }
+      const closingRepos = content.indexOf('  }\n}', allprojectsIdx);
       if (closingRepos === -1) {
-        console.warn('[withFfmpegFlatDir] Could not find repositories block end');
+        console.warn('[withFfmpegFlatDir] Could not find repositories block end in allprojects');
         return config;
       }
       content = content.slice(0, closingRepos) + FLATDIR_BLOCK + '\n' + content.slice(closingRepos);

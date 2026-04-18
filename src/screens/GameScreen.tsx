@@ -363,7 +363,6 @@ export function GameScreen({ flowPhase, advance }: Props) {
       if (resultFlash.tempPathToCleanup) {
         await FileSystem.deleteAsync(resultFlash.tempPathToCleanup, { idempotent: true });
       }
-      setResultFlash(null);
       if (wasGameOver) {
         const stored = await getFacesForRound(roundIndexRef.current);
         const strikeEntries: FrameEntry[] = strikeHistory
@@ -388,6 +387,7 @@ export function GameScreen({ flowPhase, advance }: Props) {
         setAllFrameEntries(merged);
         transition('gameOver');
       }
+      setResultFlash(null);
     }, 500);
     return () => clearTimeout(id);
   }, [resultFlash, strikeHistory]);
