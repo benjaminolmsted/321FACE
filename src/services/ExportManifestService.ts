@@ -1,7 +1,6 @@
 import { Image } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import Marker from 'react-native-image-marker';
-import { blendshapeDistance } from './BlendshapeService';
 import { timed, logBenchmark, type BenchmarkEntry } from '../utils/benchmark';
 import type { FrameEntry, ManifestConfig, ManifestFrame, ExportManifest } from '../types/export';
 
@@ -46,38 +45,6 @@ function estimateTextWidth(text: string, fontSize: number): number {
 }
 
 // ---------------------------------------------------------------------------
-// Nearest-neighbor reordering
-// ---------------------------------------------------------------------------
-
-export function reorderByBlendshapeNN(frames: FrameEntry[]): FrameEntry[] {
-  if (frames.length <= 1) return [...frames];
-
-  const remaining = frames.map((f, i) => ({ frame: f, idx: i }));
-  const result: FrameEntry[] = [];
-
-  // Pin baseline (first frame) as starting point
-  const startIdx = remaining.findIndex((r) => r.idx === 0);
-  const start = remaining.splice(startIdx >= 0 ? startIdx : 0, 1)[0];
-  result.push(start.frame);
-
-  while (remaining.length > 0) {
-    const last = result[result.length - 1];
-    let bestIdx = 0;
-    let bestDist = Infinity;
-    for (let i = 0; i < remaining.length; i++) {
-      const d = blendshapeDistance(last.blendshapes, remaining[i].frame.blendshapes);
-      if (d < bestDist) {
-        bestDist = d;
-        bestIdx = i;
-      }
-    }
-    result.push(remaining.splice(bestIdx, 1)[0].frame);
-  }
-
-  return result;
-}
-
-// ---------------------------------------------------------------------------
 // Build export manifest
 // ---------------------------------------------------------------------------
 
@@ -85,9 +52,7 @@ export function buildExportManifest(
   frames: FrameEntry[],
   config: ManifestConfig
 ): ExportManifest {
-  let ordered = config.ordering === 'nearest-neighbor'
-    ? reorderByBlendshapeNN(frames)
-    : [...frames];
+  const ordered = [...frames];
 
   const manifestFrames: ManifestFrame[] = ordered.map((entry, i) => {
     let label: string | undefined;

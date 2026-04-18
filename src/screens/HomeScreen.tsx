@@ -21,6 +21,7 @@ export type GameStyle = '321face' | 'snap';
 const COUNTDOWN_321_MS = 1252;
 const COUNTDOWN_SNAP_MS = 626;
 const GAME_STYLE_KEY = '@321face_gameStyle';
+const PLAY_MODE_KEY = '@321face_playMode';
 
 type Props = {
   advance: (next: FlowPhase) => void;
@@ -47,11 +48,19 @@ export function HomeScreen({ advance }: Props) {
     AsyncStorage.getItem(GAME_STYLE_KEY).then((v) => {
       if (v === '321face' || v === 'snap') setGameStyle(v);
     });
+    AsyncStorage.getItem(PLAY_MODE_KEY).then((v) => {
+      if (v === 'subtle' || v === 'balanced' || v === 'extreme') setPlayMode(v);
+    });
   }, []);
 
   const setGameStyleAndPersist = (s: GameStyle) => {
     setGameStyle(s);
     AsyncStorage.setItem(GAME_STYLE_KEY, s);
+  };
+
+  const setPlayModeAndPersist = (m: PlayMode) => {
+    setPlayMode(m);
+    AsyncStorage.setItem(PLAY_MODE_KEY, m);
   };
 
   const onPlay = () => {
@@ -106,8 +115,8 @@ export function HomeScreen({ advance }: Props) {
           <View style={[styles.balancedExtremeWrapper, { width: BALANCED_EXTREME_WIDTH, height: BALANCED_EXTREME_WIDTH / BALANCED_EXTREME_ASPECT }]}>
             <TouchableOpacity
               activeOpacity={0.9}
-              onPress={() => setPlayMode(playMode === 'extreme' ? 'balanced' : 'extreme')}
-              onLongPress={() => setPlayMode('subtle')}
+              onPress={() => setPlayModeAndPersist(playMode === 'extreme' ? 'balanced' : 'extreme')}
+              onLongPress={() => setPlayModeAndPersist('subtle')}
               style={styles.balancedExtremeTouchable}
             >
               <View style={styles.balancedExtremeOutline}>

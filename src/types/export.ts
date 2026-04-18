@@ -8,14 +8,11 @@ export type FrameEntry = {
   blendshapes: number[];
 };
 
-export type FrameOrdering = 'chronological' | 'nearest-neighbor';
-
 export type ManifestConfig = {
   countdownRepeat: number;
   strikeRepeat: number;
   passRepeat: number;
   durationPerFrame: number;
-  ordering: FrameOrdering;
 };
 
 export type ManifestFrame = {
@@ -38,5 +35,4 @@ export const DEFAULT_MANIFEST_CONFIG: ManifestConfig = {
   strikeRepeat: 1,
   passRepeat: 1,
   durationPerFrame: 0.125,
-  ordering: 'chronological',
 };

@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 import Share from 'react-native-share';
@@ -11,7 +11,7 @@ import {
   cleanupExportDir,
 } from '../services/ExportManifestService';
 import { timed, logBenchmark, type BenchmarkEntry } from '../utils/benchmark';
-import { DEFAULT_MANIFEST_CONFIG, type FrameEntry, type FrameOrdering } from '../types/export';
+import { DEFAULT_MANIFEST_CONFIG, type FrameEntry } from '../types/export';
 
 export type StrikeDetail = {
   type: 'similar' | 'tilt' | 'zoom' | 'nfd';
@@ -32,7 +32,6 @@ type ExportPhase = 'idle' | 'preparing' | 'creating';
 export function GameOverScreen({ strikes, allFrameEntries, onPlayAgain }: Props) {
   const totalFaces = allFrameEntries.filter((e) => e.role === 'pass').length;
   const [exportPhase, setExportPhase] = useState<ExportPhase>('idle');
-  const [ordering, setOrdering] = useState<FrameOrdering>('chronological');
 
   const handleExportVideo = useCallback(async () => {
     if (allFrameEntries.length === 0) return;
@@ -48,7 +47,7 @@ export function GameOverScreen({ strikes, allFrameEntries, onPlayAgain }: Props)
     setExportPhase('preparing');
     try {
       const bench: BenchmarkEntry[] = [];
-      const config = { ...DEFAULT_MANIFEST_CONFIG, ordering };
+      const config = { ...DEFAULT_MANIFEST_CONFIG };
       const manifest = buildExportManifest(allFrameEntries, config);
 
       const { result: { manifest: overlaid }, ms: overlayMs } = await timed('overlay', () =>
@@ -114,7 +113,7 @@ export function GameOverScreen({ strikes, allFrameEntries, onPlayAgain }: Props)
       await cleanupExportDir(docDir);
       setExportPhase('idle');
     }
-  }, [allFrameEntries, ordering]);
+  }, [allFrameEntries]);
 
   const canExportVideo = allFrameEntries.length > 0;
   const baselineUri = allFrameEntries[0]?.uri;
@@ -199,18 +198,6 @@ export function GameOverScreen({ strikes, allFrameEntries, onPlayAgain }: Props)
         <Text style={[styles.buttonText, styles.playAgainButtonText]}>PLAY AGAIN</Text>
       </TouchableOpacity>
 
-      {canExportVideo && (
-        <View style={styles.orderingRow}>
-          <Text style={styles.orderingLabel}>Smooth faces (NN)</Text>
-          <Switch
-            value={ordering === 'nearest-neighbor'}
-            onValueChange={(v) => setOrdering(v ? 'nearest-neighbor' : 'chronological')}
-            trackColor={{ false: '#555', true: '#d4b86a' }}
-            thumbColor={ordering === 'nearest-neighbor' ? '#e6c44d' : '#ccc'}
-          />
-        </View>
-      )}
-
       <TouchableOpacity
         style={[styles.button, styles.exportButton, exportPhase !== 'idle' && styles.buttonDisabled]}
         onPress={handleExportVideo}
@@ -235,41 +222,6 @@ const styles = StyleSheet.create({
   },
   scroll: { flex: 1, backgroundColor: 'transparent' },
   container: { alignItems: 'center', padding: 24, paddingBottom: 48 },
-  previewOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#000',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 10,
-  },
-  previewImageWrapper: {
-    width: '100%',
-    height: '100%',
-    position: 'relative',
-  },
-  previewImage: {
-    width: '100%',
-    height: '100%',
-  },
-  previewFrameBadge: {
-    position: 'absolute',
-    top: 48,
-    left: 24,
-    backgroundColor: 'rgba(107, 90, 50, 0.9)',
-    borderRadius: 12,
-    minWidth: 28,
-    height: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-  },
-  previewLabel: {
-    position: 'absolute',
-    bottom: 48,
-    color: '#e6c44d',
-    fontSize: 18,
-    fontWeight: '600',
-  },
   spinnerOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#000',
@@ -281,19 +233,6 @@ const styles = StyleSheet.create({
     color: '#e6c44d',
     fontSize: 18,
     marginTop: 16,
-    fontWeight: '600',
-  },
-  orderingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    marginBottom: 12,
-    width: '100%',
-  },
-  orderingLabel: {
-    color: '#e6c44d',
-    fontSize: 16,
     fontWeight: '600',
   },
   titleContainer: {
