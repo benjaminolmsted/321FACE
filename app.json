@@ -64,12 +64,6 @@
           "savePhotosPermission": "Allow 321FACE to save videos to your photo library."
         }
       ],
-      [
-        "react-native-fast-tflite",
-        {
-          "enableAndroidGpuLibraries": true
-        }
-      ],
       "./plugins/withMediaPipeAssets",
       "./plugins/withAsyncStorageMaven",
       "./plugins/withFfmpegFlatDir",

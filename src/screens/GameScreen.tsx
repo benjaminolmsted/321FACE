@@ -28,8 +28,6 @@ type Props = {
 interface CaptureEntry {
   timestamp: number;
   roundIndex: number;
-  inputHash: string;
-  embedding: number[];
   blendshapes?: number[];
   pose?: { pitchDeg: number; rollDeg: number; yawDeg: number } | null;
   scores?: ProcessResult['scores'];
@@ -38,9 +36,6 @@ interface CaptureEntry {
 
 interface CaptureData {
   rawImageUri: string;
-  faceNetInputUri: string;
-  inputHash: string;
-  embedding?: number[];
   blendshapes?: BlendshapeResult;
   result: ProcessResult;
   previousFaces: PreviousFaceDebug[];
@@ -219,8 +214,6 @@ export function GameScreen({ flowPhase, advance }: Props) {
 
       const prevDebug: PreviousFaceDebug[] = previousFaces.map((f) => ({
         imageUri: f.imageUri,
-        inputHash: f.inputHash ?? '',
-        embedding: f.embedding ?? [],
         blendshapes: f.blendshapes ?? [],
         pose: f.facePose,
         round: f.roundIndex,
@@ -229,8 +222,6 @@ export function GameScreen({ flowPhase, advance }: Props) {
       captureLog.current.push({
         timestamp: Date.now(),
         roundIndex: rd,
-        inputHash: '',
-        embedding: [],
         blendshapes: blendshapeResult.scores,
         pose: blendshapeResult.facePose ?? null,
         scores: result.scores,
@@ -285,7 +276,6 @@ export function GameScreen({ flowPhase, advance }: Props) {
             sourceImageWidth: blendshapeResult.sourceImageWidth,
             sourceImageHeight: blendshapeResult.sourceImageHeight,
             interOcularDistance: savedIod || undefined,
-            inputHash: '',
             timestamp: Date.now(),
           });
           transition('playing', rd + 1);
@@ -299,8 +289,6 @@ export function GameScreen({ flowPhase, advance }: Props) {
       } else {
         setCaptureData({
           rawImageUri: save.permPath,
-          faceNetInputUri: save.permPath,
-          inputHash: '',
           blendshapes: blendshapeResult,
           result,
           previousFaces: prevDebug,
@@ -330,7 +318,6 @@ export function GameScreen({ flowPhase, advance }: Props) {
         facePose: data.blendshapes?.facePose,
         sourceImageWidth: data.blendshapes?.sourceImageWidth,
         sourceImageHeight: data.blendshapes?.sourceImageHeight,
-        inputHash: data.inputHash || undefined,
         timestamp: Date.now(),
       });
       transition('playing', rd + 1);
@@ -530,8 +517,6 @@ export function GameScreen({ flowPhase, advance }: Props) {
           {!playMode && lastBenchmarks && (
             <View style={styles.benchmarkStrip}>
               <Text style={styles.benchmarkText}>
-                {lastBenchmarks.mlKitMs ? `ML Kit: ${lastBenchmarks.mlKitMs.toFixed(0)}ms` : ''}
-                {lastBenchmarks.faceNetMs ? ` | FaceNet: ${lastBenchmarks.faceNetMs.total.toFixed(0)}ms` : ''}
                 {lastBenchmarks.blendshapeMs != null ? `Blendshapes: ${lastBenchmarks.blendshapeMs.toFixed(0)}ms` : ''}
               </Text>
             </View>
@@ -543,9 +528,6 @@ export function GameScreen({ flowPhase, advance }: Props) {
         <View style={styles.fullOverlay}>
           <DebugScreen
             rawImageUri={captureData.rawImageUri}
-            faceNetInputUri={captureData.faceNetInputUri}
-            inputHash={captureData.inputHash}
-            currentEmbedding={captureData.embedding ?? []}
             currentBlendshapes={captureData.blendshapes ?? undefined}
             previousFaces={captureData.previousFaces}
             scores={captureData.result.scores}

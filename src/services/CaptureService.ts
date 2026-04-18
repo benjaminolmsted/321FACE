@@ -146,7 +146,6 @@ export function compareAndDecide(
   const strike = isPlayMode ? (blendshapeStrike || !!tiltStrike || zoomStrike) : false;
 
   const benchmarks: ProcessResult['benchmarks'] = {
-    mlKitMs: 0,
     blendshapeMs: blendshapes.timingMs,
   };
 

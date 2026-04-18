@@ -4,8 +4,6 @@ import { blendshapeDistance, type BlendshapeResult } from '../services/Blendshap
 
 export type PreviousFaceDebug = {
   imageUri: string;
-  inputHash: string;
-  embedding: number[];
   blendshapes: number[];
   pose?: { pitchDeg: number; rollDeg: number; yawDeg: number };
   round: number;
@@ -13,9 +11,6 @@ export type PreviousFaceDebug = {
 
 interface DebugScreenProps {
   rawImageUri: string;
-  faceNetInputUri: string;
-  inputHash: string;
-  currentEmbedding: number[];
   currentBlendshapes?: BlendshapeResult;
   previousFaces: PreviousFaceDebug[];
   scores?: ProcessResult['scores'];
@@ -23,32 +18,15 @@ interface DebugScreenProps {
   onDumpLog?: () => void;
 }
 
-function cosine(a: number[], b: number[]): number {
-  if (a.length === 0 || b.length === 0 || a.length !== b.length) return 0;
-  let dot = 0, magA = 0, magB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    magA += a[i] * a[i];
-    magB += b[i] * b[i];
-  }
-  const denom = Math.sqrt(magA) * Math.sqrt(magB);
-  return denom === 0 ? 0 : dot / denom;
-}
-
-function fmtSim(val: number): string {
-  return (val * 100).toFixed(1);
-}
-
 function fmtDist(val: number): string {
   return val.toFixed(3);
 }
 
 // Shared grid component for both cosine similarity and blendshape distance. Exported for use in StrikeScreen.
-export function DataGrid({ vectors, labels, title, mode, imageUris }: {
+export function DataGrid({ vectors, labels, title, imageUris }: {
   vectors: number[][];
   labels: string[];
   title: string;
-  mode: 'cosine' | 'euclidean';
   imageUris?: string[];
 }) {
   const n = vectors.length;
@@ -89,19 +67,9 @@ export function DataGrid({ vectors, labels, title, mode, imageUris }: {
                   );
                 }
 
-                let display: string;
-                let bg: string;
-
-                if (mode === 'cosine') {
-                  const sim = cosine(rowVec, colVec);
-                  const pct = sim * 100;
-                  display = fmtSim(sim);
-                  bg = pct >= 98 ? '#4a1a1a' : pct >= 95 ? '#3a2a1a' : '#1a2a1a';
-                } else {
-                  const dist = blendshapeDistance(rowVec, colVec);
-                  display = fmtDist(dist);
-                  bg = dist < 0.3 ? '#4a1a1a' : dist < 0.6 ? '#3a2a1a' : '#1a2a1a';
-                }
+                const dist = blendshapeDistance(rowVec, colVec);
+                const display = fmtDist(dist);
+                const bg = dist < 0.3 ? '#4a1a1a' : dist < 0.6 ? '#3a2a1a' : '#1a2a1a';
 
                 return (
                   <View key={`c-${i}-${j}`} style={[styles.gridCell, { width: CELL, backgroundColor: bg }]}>
@@ -123,16 +91,12 @@ function fmtPose(p: { pitchDeg: number; rollDeg: number; yawDeg: number }): stri
 
 export function DebugScreen({
   rawImageUri,
-  faceNetInputUri,
-  inputHash,
-  currentEmbedding,
   currentBlendshapes,
   previousFaces,
   scores,
   onContinue,
   onDumpLog,
 }: DebugScreenProps) {
-  const allEmbeddings = [...previousFaces.map((f) => f.embedding), currentEmbedding];
   const allLabels = [...previousFaces.map((f) => `R${f.round + 1}`), 'Now'];
 
   const currentBsScores = currentBlendshapes?.scores ?? [];
@@ -196,7 +160,7 @@ export function DebugScreen({
 
       {/* ── Blendshape distance grid ── */}
       {hasBlendshapes && (
-        <DataGrid vectors={allBlendshapes} labels={allLabels} title="Blendshape distance (L2)" mode="euclidean" imageUris={allImageUris} />
+        <DataGrid vectors={allBlendshapes} labels={allLabels} title="Blendshape distance (L2)" imageUris={allImageUris} />
       )}
 
       <View style={styles.buttonRow}>

@@ -1,13 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { Face } from '@react-native-ml-kit/face-detection';
 
 const STORAGE_KEY = '@321face_faces';
 
 export interface StoredFaceData {
   roundIndex: number;
   imageUri: string;
-  face?: Face;
-  embedding?: number[];
   blendshapes?: number[];
   faceLandmarks?: { x: number; y: number; z: number }[];
   facePose?: { pitchDeg: number; rollDeg: number; yawDeg: number };
@@ -16,7 +13,6 @@ export interface StoredFaceData {
   sourceImageHeight?: number;
   /** Inter-ocular distance (normalized) for zoom strike check */
   interOcularDistance?: number;
-  inputHash?: string;
   timestamp: number;
 }
 

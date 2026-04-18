@@ -46,7 +46,6 @@ export function StrikeScreen({
           vectors={[...previousFaces.map((f) => f.blendshapes ?? []), currentBlendshapes]}
           labels={[...previousFaces.map((f) => `R${f.round + 1}`), 'Now']}
           title="Blendshape distance (L2)"
-          mode="euclidean"
           imageUris={[...previousFaces.map((f) => f.imageUri), currentImageUri]}
         />
       )}
@@ -57,48 +56,29 @@ export function StrikeScreen({
           {benchmarks && (
             <View style={styles.debugSection}>
               <Text style={styles.debugLabel}>Timing (ms)</Text>
-              <Text style={styles.debugText}>ML Kit: {benchmarks.mlKitMs?.toFixed(0) ?? '—'}</Text>
-              {benchmarks.faceNetMs && (
-                <>
-                  <Text style={styles.debugText}>
-                    FaceNet align: {benchmarks.faceNetMs.align.toFixed(0)}
-                  </Text>
-                  <Text style={styles.debugText}>
-                    FaceNet model: {benchmarks.faceNetMs.modelRun.toFixed(0)}
-                  </Text>
-                  <Text style={styles.debugText}>
-                    FaceNet total: {benchmarks.faceNetMs.total.toFixed(0)}
-                  </Text>
-                </>
-              )}
-              {benchmarks.contourMs !== undefined && (
-                <Text style={styles.debugText}>Contour compare: {benchmarks.contourMs.toFixed(0)}</Text>
-              )}
-              {benchmarks.embeddingMs !== undefined && (
-                <Text style={styles.debugText}>Embedding compare: {benchmarks.embeddingMs.toFixed(0)}</Text>
+              {benchmarks.blendshapeMs != null && (
+                <Text style={styles.debugText}>Blendshapes: {benchmarks.blendshapeMs.toFixed(0)}</Text>
               )}
             </View>
           )}
           {scores && (
             <View style={styles.debugSection}>
               <Text style={styles.debugLabel}>Similarity Scores</Text>
-              {scores.contour && (
-                <>
-                  <Text style={styles.debugText}>
-                    Contour overall: {(scores.contour.overall * 100).toFixed(1)}%
-                  </Text>
-                  {Object.entries(scores.contour.perContour).map(([k, v]) => (
-                    <Text key={k} style={styles.debugTextSmall}>
-                      {k}: {(v * 100).toFixed(1)}%
-                    </Text>
-                  ))}
-                </>
-              )}
-              {scores.embedding && (
+              {scores.blendshape && (
                 <Text style={styles.debugText}>
-                  Embedding max: {(scores.embedding.maxSimilarity * 100).toFixed(1)}%
-                  {scores.embedding.perFace.length > 1 &&
-                    ` (per face: ${scores.embedding.perFace.map((s) => (s * 100).toFixed(0)).join(', ')}%)`}
+                  Blendshape min dist: {scores.blendshape.minDistance.toFixed(3)}
+                </Text>
+              )}
+              {scores.pose && (
+                <Text style={styles.debugText}>
+                  Pose: p{scores.pose.pitchDeg.toFixed(1)} r{scores.pose.rollDeg.toFixed(1)} y{scores.pose.yawDeg.toFixed(1)}
+                  {scores.pose.tiltStrike ? ' (TILT)' : ''}
+                </Text>
+              )}
+              {scores.interOcular && (
+                <Text style={styles.debugText}>
+                  IOD: {scores.interOcular.current.toFixed(3)} vs {scores.interOcular.baseline.toFixed(3)}
+                  {scores.interOcular.zoomStrike ? ' (ZOOM)' : ''}
                 </Text>
               )}
             </View>
