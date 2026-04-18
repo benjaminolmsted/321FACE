@@ -1,8 +1,11 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 import Share from 'react-native-share';
+
+const HIGH_SCORE_KEY = '@321face_highScore';
 import { concatListToVideo } from '../services/VideoExportService';
 import {
   buildExportManifest,
@@ -32,6 +35,17 @@ type ExportPhase = 'idle' | 'preparing' | 'creating';
 export function GameOverScreen({ strikes, allFrameEntries, onPlayAgain }: Props) {
   const totalFaces = allFrameEntries.filter((e) => e.role === 'pass').length;
   const [exportPhase, setExportPhase] = useState<ExportPhase>('idle');
+  const [isNewHighScore, setIsNewHighScore] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem(HIGH_SCORE_KEY).then((raw) => {
+      const prev = raw ? parseInt(raw, 10) : 0;
+      if (totalFaces > prev) {
+        setIsNewHighScore(true);
+        AsyncStorage.setItem(HIGH_SCORE_KEY, String(totalFaces));
+      }
+    });
+  }, [totalFaces]);
 
   const handleExportVideo = useCallback(async () => {
     if (allFrameEntries.length === 0) return;
@@ -155,11 +169,6 @@ export function GameOverScreen({ strikes, allFrameEntries, onPlayAgain }: Props)
         <Text style={[styles.title, styles.titleShadow]}>GAME OVER</Text>
         <Text style={styles.title}>GAME OVER</Text>
       </View>
-      <View style={styles.scoreContainer}>
-        <Text style={[styles.scoreText, styles.scoreTextShadow]}>SCORE: {totalFaces} UNIQUE {totalFaces === 1 ? 'FACE' : 'FACES'}</Text>
-        <Text style={styles.scoreText}>SCORE: {totalFaces} UNIQUE {totalFaces === 1 ? 'FACE' : 'FACES'}</Text>
-      </View>
-
       <View style={styles.strikesList}>
         {strikes.map((strike, i) => (
           <View key={i} style={styles.strikeCard}>
@@ -192,6 +201,17 @@ export function GameOverScreen({ strikes, allFrameEntries, onPlayAgain }: Props)
             </View>
           </View>
         ))}
+      </View>
+
+      <View style={styles.scoreCard}>
+        <View style={styles.highScoreContainer}>
+          <Text style={[styles.highScoreText, styles.highScoreTextShadow]}>{isNewHighScore ? 'NEW HIGH SCORE!' : 'SCORE'}</Text>
+          <Text style={styles.highScoreText}>{isNewHighScore ? 'NEW HIGH SCORE!' : 'SCORE'}</Text>
+        </View>
+        <View style={styles.scoreContainer}>
+          <Text style={[styles.scoreText, styles.scoreTextShadow]}>{totalFaces} UNIQUE {totalFaces === 1 ? 'FACE' : 'FACES'}</Text>
+          <Text style={styles.scoreText}>{totalFaces} UNIQUE {totalFaces === 1 ? 'FACE' : 'FACES'}</Text>
+        </View>
       </View>
 
       <TouchableOpacity style={styles.button} onPress={onPlayAgain} activeOpacity={0.8}>
@@ -237,7 +257,7 @@ const styles = StyleSheet.create({
   },
   titleContainer: {
     position: 'relative',
-    marginTop: 25,
+    marginTop: 13,
     marginBottom: 4,
   },
   title: {
@@ -252,16 +272,40 @@ const styles = StyleSheet.create({
     left: 3,
     color: 'rgba(0,0,0,0.5)',
   },
+  scoreCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    marginTop: 8,
+    marginBottom: 16,
+    alignItems: 'center',
+    width: '100%',
+  },
+  highScoreContainer: {
+    position: 'relative',
+    marginBottom: 4,
+  },
+  highScoreText: {
+    fontSize: 16,
+    color: '#e6c44d',
+    fontWeight: '900',
+    letterSpacing: 2,
+  },
+  highScoreTextShadow: {
+    position: 'absolute',
+    top: 1,
+    left: 1,
+    color: 'rgba(0,0,0,0.5)',
+  },
   scoreContainer: {
     position: 'relative',
-    marginTop: 4,
-    marginBottom: 24,
   },
   scoreText: {
     fontSize: 20,
     color: '#e6c44d',
     fontWeight: 'bold',
-    letterSpacing: 2,
+    letterSpacing: 1,
   },
   scoreTextShadow: {
     position: 'absolute',
@@ -269,13 +313,12 @@ const styles = StyleSheet.create({
     left: 1,
     color: 'rgba(0,0,0,0.5)',
   },
-  strikesList: { width: '100%', marginBottom: 16 },
+  strikesList: { width: '100%', marginBottom: 0 },
   strikeCard: {
     backgroundColor: 'rgba(255,255,255,0.92)',
     borderRadius: 12,
     paddingVertical: 16,
     paddingRight: 16,
-    marginBottom: 16,
     borderLeftWidth: 4,
     borderRightWidth: 4,
     borderLeftColor: '#e6c44d',

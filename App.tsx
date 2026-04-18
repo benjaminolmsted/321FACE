@@ -6,7 +6,6 @@ import { BackHandler, Image, Text, View } from 'react-native';
 import * as NavigationBar from 'expo-navigation-bar';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { GameScreen } from './src/screens/GameScreen';
-import { BaselineCaptureScreen } from './src/screens/BaselineCaptureScreen';
 import { FlowProvider, useFlow } from './src/context/FlowContext';
 import { CameraProvider } from './src/context/CameraContext';
 import { warmupBlendshapes } from './src/services/BlendshapeService';
@@ -17,16 +16,8 @@ function FlowRouter() {
 
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (flowPhase.screen === 'baseline') {
-        advance({ screen: 'home' });
-        return true;
-      }
-      if (flowPhase.screen === 'gameLoading') {
-        advance({ screen: 'baseline', phase: 'capture', gameParams: flowPhase.data.gameParams });
-        return true;
-      }
       if (flowPhase.screen === 'game') {
-        advance({ screen: 'baseline', phase: 'capture', gameParams: flowPhase.gameParams });
+        advance({ screen: 'home' });
         return true;
       }
       return false;
@@ -37,10 +28,7 @@ function FlowRouter() {
   if (flowPhase.screen === 'home') {
     return <HomeScreen advance={advance} />;
   }
-  if (flowPhase.screen === 'baseline') {
-    return <BaselineCaptureScreen flowPhase={flowPhase} advance={advance} />;
-  }
-  if (flowPhase.screen === 'gameLoading' || flowPhase.screen === 'game') {
+  if (flowPhase.screen === 'game') {
     return <GameScreen flowPhase={flowPhase} advance={advance} />;
   }
   return null;

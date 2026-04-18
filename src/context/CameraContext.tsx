@@ -1,9 +1,9 @@
 /**
- * Shared CameraView provider. Keeps the camera mounted across baseline, gameLoading,
- * and game phases so it stays warm when transitioning from capture to game.
+ * Shared CameraView provider. Keeps the camera mounted while on the game screen
+ * so it stays warm across baseline capture and gameplay.
  */
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { AppState, StyleSheet, View } from 'react-native';
+import { AppState, Platform, StyleSheet, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useFlow } from './FlowContext';
 
@@ -16,7 +16,7 @@ type CameraContextValue = {
 
 const CameraContext = createContext<CameraContextValue | null>(null);
 
-const CAMERA_SCREENS = ['baseline', 'gameLoading', 'game'] as const;
+const CAMERA_SCREENS = ['game'] as const;
 
 export function CameraProvider({ children }: { children: React.ReactNode }) {
   const { flowPhase } = useFlow();
@@ -77,7 +77,10 @@ export function CameraProvider({ children }: { children: React.ReactNode }) {
             />
           </View>
         )}
-        {children}
+        {/* RN views must stack above the native camera preview (esp. Android SurfaceView) */}
+        <View style={styles.uiLayer} pointerEvents="box-none" collapsable={false}>
+          {children}
+        </View>
       </View>
     </CameraContext.Provider>
   );
@@ -96,4 +99,9 @@ const styles = StyleSheet.create({
     zIndex: 0,
   },
   camera: { flex: 1 },
+  uiLayer: {
+    flex: 1,
+    zIndex: 1,
+    ...(Platform.OS === 'android' ? { elevation: 8 } : {}),
+  },
 });

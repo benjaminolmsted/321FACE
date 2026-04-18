@@ -65,7 +65,7 @@ export function HomeScreen({ advance }: Props) {
 
   const onPlay = () => {
     const cdMs = gameStyle === 'snap' ? COUNTDOWN_SNAP_MS : COUNTDOWN_321_MS;
-    advance({ screen: 'baseline', phase: 'capture', gameParams: buildGameParams(playMode, cdMs, false, gameStyle) });
+    advance({ screen: 'game', gameParams: buildGameParams(playMode, cdMs, false, gameStyle) });
   };
 
   return (
@@ -79,7 +79,7 @@ export function HomeScreen({ advance }: Props) {
         <TouchableOpacity
           style={styles.rulesButton}
           onPress={() => setRulesVisible(true)}
-          onLongPress={() => advance({ screen: 'baseline', phase: 'capture', gameParams: buildGameParams('balanced', COUNTDOWN_321_MS, true, gameStyle) })}
+          onLongPress={() => advance({ screen: 'game', gameParams: buildGameParams('balanced', COUNTDOWN_321_MS, true, gameStyle) })}
         >
           <Text style={styles.rulesButtonText}>?</Text>
         </TouchableOpacity>
