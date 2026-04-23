@@ -70,7 +70,8 @@
       "./plugins/withDebugAppName",
       "./plugins/withDebugApplicationId",
       ["react-native-share", {}],
-      "./plugins/withReactNativeShare"
+      "./plugins/withReactNativeShare",
+      "./plugins/withAndroidReleaseKeystore"
     ],
     "web": {
       "favicon": "./assets/favicon.png"

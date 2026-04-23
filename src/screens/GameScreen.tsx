@@ -6,11 +6,7 @@ import { getInterOcularDistance } from '../services/BlendshapeService';
 import type { ProcessResult } from '../services/FaceComparisonService';
 import { saveFace, getFacesForRound, clearStoredFaces } from '../services/StorageService';
 import { capturePhoto, flipAndSaveTemp, savePermImage, extractFeatures, compareAndDecide } from '../services/CaptureService';
-import {
-  flipBaselineForDisplay,
-  processBaselineFromTemp,
-  type BaselineProcessResult,
-} from '../services/BaselineCaptureService';
+import { flipBaselineForDisplay, processBaselineFromTemp } from '../services/BaselineCaptureService';
 import { timed, logBenchmark, type BenchmarkEntry } from '../utils/benchmark';
 import { FaceOvalOverlay } from '../components/FaceOvalOverlay';
 import { PermissionGate, PermissionGateLoading } from '../components/PermissionGate';
@@ -23,9 +19,7 @@ import { usePermissionGate } from '../hooks/usePermissionGate';
 import type { FlowPhase } from '../context/FlowContext';
 import type { FrameEntry } from '../types/export';
 
-const BASELINE_FLASH_DELAY_MS = 500;
-
-type GameState = 'baseline' | 'baselineFlash' | 'baselineError' | 'playing' | 'processing' | 'debug' | 'strike' | 'gameOver';
+type GameState = 'baseline' | 'baselineError' | 'playing' | 'processing' | 'debug' | 'strike' | 'gameOver';
 
 type Props = {
   flowPhase: Extract<FlowPhase, { screen: 'game' }>;
@@ -57,23 +51,15 @@ export function GameScreen({ flowPhase, advance }: Props) {
   const countdownMs = gameParams.countdownMs;
   const gameStyle = gameParams.gameStyle ?? '321face';
 
-  const { cameraRef, cameraReady } = useCamera();
+  const { cameraRef, cameraReady, setCameraPreviewSuppressed } = useCamera();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const goHome = useCallback(() => advance({ screen: 'home' }), [advance]);
   const { status, gateMode, busy, onGrant, onCancel } = usePermissionGate(goHome);
 
   // --- Baseline capture state ---
   const [baselineCapturing, setBaselineCapturing] = useState(false);
-  const [baselineDisplayUri, setBaselineDisplayUri] = useState<string | null>(null);
-  const [baselineFlashResult, setBaselineFlashResult] = useState<{
-    faceLandmarks: { x: number; y: number; z: number }[];
-    sourceImageWidth: number;
-    sourceImageHeight: number;
-  } | null>(null);
-  const [baselineFlashOverlaySize, setBaselineFlashOverlaySize] = useState({ width: 0, height: 0 });
   const [showMarbleSplash, setShowMarbleSplash] = useState(true);
   const [baselineError, setBaselineError] = useState<{ message: string; debugImageUri?: string } | null>(null);
-  const baselineProcessingRef = useRef<Promise<BaselineProcessResult> | null>(null);
 
   // --- Game state ---
   const [gameState, setGameState] = useState<GameState>('baseline');
@@ -106,6 +92,14 @@ export function GameScreen({ flowPhase, advance }: Props) {
     clearStoredFaces();
   }, []);
 
+  useEffect(() => {
+    if (gameState === 'gameOver') {
+      setCameraPreviewSuppressed(true);
+      return () => setCameraPreviewSuppressed(false);
+    }
+    setCameraPreviewSuppressed(false);
+  }, [gameState, setCameraPreviewSuppressed]);
+
   // --- Baseline: marble splash timeout ---
   useEffect(() => {
     if (gameState !== 'baseline') return;
@@ -113,56 +107,6 @@ export function GameScreen({ flowPhase, advance }: Props) {
     const id = setTimeout(() => setShowMarbleSplash(false), 500);
     return () => clearTimeout(id);
   }, [gameState]);
-
-  // --- Baseline: process flash result ---
-  useEffect(() => {
-    if (gameState !== 'baselineFlash' || !baselineDisplayUri) return;
-    const processing = baselineProcessingRef.current;
-    if (!processing) return;
-
-    let cancelled = false;
-    (async () => {
-      const result = await processing;
-      if (cancelled) return;
-      if (!result.ok) {
-        await FileSystem.deleteAsync(baselineDisplayUri, { idempotent: true });
-        setBaselineError({ message: 'No face detected. Try again.', debugImageUri: result.debugImageUri });
-        setBaselineDisplayUri(null);
-        baselineProcessingRef.current = null;
-        gameStateRef.current = 'baselineError';
-        setGameState('baselineError');
-        return;
-      }
-      setBaselineFlashResult({
-        faceLandmarks: result.faceLandmarks,
-        sourceImageWidth: result.sourceImageWidth,
-        sourceImageHeight: result.sourceImageHeight,
-      });
-    })();
-    return () => { cancelled = true; };
-  }, [gameState, baselineDisplayUri]);
-
-  // --- Baseline: after flash result + overlay rendered, transition to playing ---
-  useEffect(() => {
-    if (gameState !== 'baselineFlash' || !baselineFlashResult || baselineFlashOverlaySize.width === 0 || !baselineDisplayUri) return;
-
-    const id = setTimeout(() => {
-      FileSystem.deleteAsync(baselineDisplayUri, { idempotent: true });
-      setBaselineDisplayUri(null);
-      baselineProcessingRef.current = null;
-      // Seed overlay from processed baseline — roundIndex stays 1 so the [roundIndex]
-      // effect never re-runs after saveFace(0), and would otherwise leave landmarks null.
-      setBaselineLandmarks(baselineFlashResult.faceLandmarks);
-      setBaselineSourceSize({
-        width: baselineFlashResult.sourceImageWidth,
-        height: baselineFlashResult.sourceImageHeight,
-      });
-      gameStateRef.current = 'playing';
-      setGameState('playing');
-    }, BASELINE_FLASH_DELAY_MS);
-
-    return () => clearTimeout(id);
-  }, [gameState, baselineFlashResult, baselineFlashOverlaySize, baselineDisplayUri]);
 
   function transition(state: GameState, round?: number) {
     gameStateRef.current = state;
@@ -180,16 +124,31 @@ export function GameScreen({ flowPhase, advance }: Props) {
 
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.9, base64: false, shutterSound: false });
-      if (!photo?.uri) { setBaselineCapturing(false); return; }
+      if (!photo?.uri) {
+        setBaselineCapturing(false);
+        return;
+      }
 
       const { flippedPath } = await flipBaselineForDisplay(photo.uri);
-      const processing = processBaselineFromTemp(flippedPath, photo.width);
-      baselineProcessingRef.current = processing;
-      setBaselineDisplayUri(flippedPath);
-      setBaselineFlashResult(null);
-      setBaselineFlashOverlaySize({ width: 0, height: 0 });
-      gameStateRef.current = 'baselineFlash';
-      setGameState('baselineFlash');
+      const result = await processBaselineFromTemp(flippedPath, photo.width);
+      await FileSystem.deleteAsync(flippedPath, { idempotent: true });
+
+      if (!result.ok) {
+        setBaselineError({ message: 'No face detected. Try again.', debugImageUri: result.debugImageUri });
+        setBaselineCapturing(false);
+        gameStateRef.current = 'baselineError';
+        setGameState('baselineError');
+        return;
+      }
+
+      setBaselineLandmarks(result.faceLandmarks);
+      setBaselineSourceSize({
+        width: result.sourceImageWidth,
+        height: result.sourceImageHeight,
+      });
+      setBaselineCapturing(false);
+      gameStateRef.current = 'playing';
+      setGameState('playing');
     } catch (err) {
       console.error('[BaselineCapture] error:', err);
       setBaselineCapturing(false);
@@ -202,16 +161,13 @@ export function GameScreen({ flowPhase, advance }: Props) {
   const onBaselineRetry = useCallback(() => {
     setBaselineError(null);
     setBaselineCapturing(false);
-    setBaselineDisplayUri(null);
-    setBaselineFlashResult(null);
-    baselineProcessingRef.current = null;
     gameStateRef.current = 'baseline';
     setGameState('baseline');
   }, []);
 
   // --- Game: load face-oval landmarks from storage when roundIndex changes (playing only).
   // Do not run while still on baseline UI: roundIndex is already 1 but baseline isn't saved yet;
-  // a late-resolving getFacesForRound([]) would overwrite landmarks seeded from the flash step.
+  // a late-resolving getFacesForRound([]) would overwrite landmarks seeded in doBaselineCapture.
   useEffect(() => {
     if (roundIndex === 0) {
       setBaselineLandmarks(null);
@@ -454,10 +410,7 @@ export function GameScreen({ flowPhase, advance }: Props) {
     setCaptureData(null);
     setResultFlash(null);
     setBaselineCapturing(false);
-    setBaselineDisplayUri(null);
-    setBaselineFlashResult(null);
     setBaselineError(null);
-    baselineProcessingRef.current = null;
     setAllFrameEntries([]);
     setLastBenchmarks(undefined);
     setBaselineLandmarks(null);
@@ -489,6 +442,7 @@ export function GameScreen({ flowPhase, advance }: Props) {
         await FileSystem.deleteAsync(resultFlash.tempPathToCleanup, { idempotent: true });
       }
       if (wasGameOver) {
+        setCameraPreviewSuppressed(true);
         const stored = await getFacesForRound(roundIndexRef.current);
         const strikeEntries: FrameEntry[] = strikeHistory
           .map((s) => ({
@@ -541,51 +495,26 @@ export function GameScreen({ flowPhase, advance }: Props) {
   if (status === 'gate') return <PermissionGate gateMode={gateMode} busy={busy} onGrant={onGrant} onCancel={onCancel} />;
 
   // --- Baseline UI ---
-  const isBaseline = gameState === 'baseline' || gameState === 'baselineFlash' || gameState === 'baselineError';
+  const isBaseline = gameState === 'baseline' || gameState === 'baselineError';
 
   if (isBaseline) {
     return (
       <View style={styles.container}>
-        {(baselineError || (showMarbleSplash && !baselineDisplayUri)) && (
+        {(baselineError || showMarbleSplash) && (
           <Image
             source={require('../../assets/MASKS_ON_MARBLE.png')}
             style={styles.backgroundImage}
             resizeMode="cover"
           />
         )}
-        {baselineDisplayUri && (
-          <View
-            style={styles.baselineFlashOverlay}
-            pointerEvents="none"
-            onLayout={(e) => {
-              const { width, height } = e.nativeEvent.layout;
-              setBaselineFlashOverlaySize({ width, height });
-            }}
-          >
-            <Image
-              source={{ uri: baselineDisplayUri }}
-              style={styles.baselineFlashImage}
-              resizeMode="cover"
-            />
-            {!baselineFlashResult && <ActivityIndicator size="large" color="#fff" style={styles.flashSpinner} />}
-            {baselineFlashResult && baselineFlashOverlaySize.width > 0 && (
-              <FaceOvalOverlay
-                landmarks={baselineFlashResult.faceLandmarks}
-                width={baselineFlashOverlaySize.width}
-                height={baselineFlashOverlaySize.height}
-                sourceImageWidth={baselineFlashResult.sourceImageWidth}
-                sourceImageHeight={baselineFlashResult.sourceImageHeight}
-                previewScaleMode="fill"
-                mirror={false}
-                stroke="#e6c44d"
-                strokeWidth={3}
-              />
-            )}
-          </View>
-        )}
 
         <View style={styles.overlay} pointerEvents="box-none">
-          {cameraReady && !showMarbleSplash && !baselineDisplayUri && !baselineError && (
+          {baselineCapturing && (
+            <View style={styles.baselineProcessingOverlay} pointerEvents="none">
+              <ActivityIndicator size="large" color="#e6c44d" />
+            </View>
+          )}
+          {cameraReady && !showMarbleSplash && !baselineCapturing && !baselineError && (
             <View style={styles.messageBox}>
               <Text style={styles.message}>
                 Capture the baseline pose you want to use for this run
@@ -612,7 +541,7 @@ export function GameScreen({ flowPhase, advance }: Props) {
               </View>
               {baselineError.debugImageUri && (
                 <View style={styles.debugImageBox}>
-                  <Text style={styles.debugImageLabel}>Image passed to MediaPipe:</Text>
+                  <Text style={styles.debugImageLabel}>Captured image</Text>
                   <Image
                     source={{ uri: baselineError.debugImageUri }}
                     style={styles.debugImage}
@@ -624,13 +553,15 @@ export function GameScreen({ flowPhase, advance }: Props) {
           )}
 
           <View style={styles.baselineBottomBar}>
-            {cameraReady && !showMarbleSplash && !baselineDisplayUri && !baselineCapturing && (
+            {cameraReady && !showMarbleSplash && !baselineCapturing && (
               <TouchableOpacity
                 style={styles.baselineCaptureButton}
                 onPress={baselineError ? onBaselineRetry : doBaselineCapture}
                 activeOpacity={0.8}
               >
-                <Text style={styles.baselineCaptureButtonText}>CAPTURE</Text>
+                <Text style={styles.baselineCaptureButtonText}>
+                  {baselineError ? 'TRY AGAIN' : 'CAPTURE'}
+                </Text>
               </TouchableOpacity>
             )}
           </View>
@@ -760,7 +691,7 @@ export function GameScreen({ flowPhase, advance }: Props) {
       )}
 
       {gameState === 'gameOver' && strikeHistory.length > 0 && (
-        <View style={styles.fullOverlay}>
+        <View style={[styles.fullOverlay, styles.gameOverLayer]}>
           <GameOverScreen strikes={strikeHistory} allFrameEntries={allFrameEntries} onPlayAgain={handlePlayAgain} />
         </View>
       )}
@@ -772,24 +703,19 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   overlay: { ...StyleSheet.absoluteFillObject },
   fullOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 10 },
+  /** Solid base so marble image / RN tree never briefly reveal the live camera during transition. */
+  gameOverLayer: { backgroundColor: '#000' },
   backgroundImage: {
     ...StyleSheet.absoluteFillObject,
     width: '100%',
     height: '100%',
   },
-  baselineFlashOverlay: {
+  baselineProcessingOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#000',
+    backgroundColor: 'rgba(0,0,0,0.35)',
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 12,
-  },
-  baselineFlashImage: {
-    width: '100%',
-    height: '100%',
-  },
-  flashSpinner: {
-    position: 'absolute',
+    zIndex: 20,
   },
   messageBox: {
     position: 'absolute',

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
@@ -15,6 +15,7 @@ import {
 } from '../services/ExportManifestService';
 import { timed, logBenchmark, type BenchmarkEntry } from '../utils/benchmark';
 import { DEFAULT_MANIFEST_CONFIG, type FrameEntry } from '../types/export';
+import { getFaceEmoji } from '../utils/faceTiers';
 
 export type StrikeDetail = {
   type: 'similar' | 'tilt' | 'zoom' | 'nfd';
@@ -131,6 +132,8 @@ export function GameOverScreen({ strikes, allFrameEntries, onPlayAgain }: Props)
 
   const canExportVideo = allFrameEntries.length > 0;
   const baselineUri = allFrameEntries[0]?.uri;
+  const faceEmoji = getFaceEmoji(totalFaces);
+  const uniqueFacesLabel = `${totalFaces} UNIQUE ${totalFaces === 1 ? 'FACE' : 'FACES'}`;
 
   const allFaceUris = allFrameEntries.map((e) => e.uri);
   const uriToFrame = Object.fromEntries(allFrameEntries.map((e) => [e.uri, e.roundIndex + 1]));
@@ -164,14 +167,15 @@ export function GameOverScreen({ strikes, allFrameEntries, onPlayAgain }: Props)
           </Text>
         </View>
       )}
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
+      <View style={styles.body}>
+      <View style={styles.container}>
       <View style={styles.titleContainer}>
         <Text style={[styles.title, styles.titleShadow]}>GAME OVER</Text>
         <Text style={styles.title}>GAME OVER</Text>
       </View>
       <View style={styles.strikesList}>
         {strikes.map((strike, i) => (
-          <View key={i} style={styles.strikeCard}>
+          <View key={i} style={[styles.strikeCard, i > 0 && styles.strikeCardTightTop]}>
             <View style={styles.strikeCardRow}>
               <View style={styles.strikeTypeContainer}>
                 <Text style={[styles.strikeType, styles.strikeTypeRotated]} numberOfLines={1}>
@@ -209,8 +213,20 @@ export function GameOverScreen({ strikes, allFrameEntries, onPlayAgain }: Props)
           <Text style={styles.highScoreText}>{isNewHighScore ? 'NEW HIGH SCORE!' : 'SCORE'}</Text>
         </View>
         <View style={styles.scoreContainer}>
-          <Text style={[styles.scoreText, styles.scoreTextShadow]}>{totalFaces} UNIQUE {totalFaces === 1 ? 'FACE' : 'FACES'}</Text>
-          <Text style={styles.scoreText}>{totalFaces} UNIQUE {totalFaces === 1 ? 'FACE' : 'FACES'}</Text>
+          <View style={styles.scoreLineRow}>
+            <Text style={styles.gameOverEmoji}>
+              {faceEmoji}
+              {' '}
+            </Text>
+            <View style={styles.scoreGoldSegment}>
+              <Text style={[styles.scoreText, styles.scoreTextShadow]}>{uniqueFacesLabel}</Text>
+              <Text style={styles.scoreText}>{uniqueFacesLabel}</Text>
+            </View>
+            <Text style={styles.gameOverEmoji}>
+              {' '}
+              {faceEmoji}
+            </Text>
+          </View>
         </View>
       </View>
 
@@ -228,7 +244,8 @@ export function GameOverScreen({ strikes, allFrameEntries, onPlayAgain }: Props)
           {exportPhase === 'preparing' ? 'Adding overlays...' : exportPhase === 'creating' ? 'Creating video...' : 'EXPORT VIDEO'}
         </Text>
       </TouchableOpacity>
-    </ScrollView>
+      </View>
+      </View>
     </View>
   );
 }
@@ -240,8 +257,8 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  scroll: { flex: 1, backgroundColor: 'transparent' },
-  container: { alignItems: 'center', padding: 24, paddingBottom: 48 },
+  body: { flex: 1, backgroundColor: 'transparent', width: '100%' },
+  container: { alignItems: 'center', padding: 24, paddingBottom: 48, width: '100%' },
   spinnerOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#000',
@@ -271,6 +288,20 @@ const styles = StyleSheet.create({
     top: 3,
     left: 3,
     color: 'rgba(0,0,0,0.5)',
+  },
+  gameOverEmoji: {
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  scoreLineRow: {
+    width: '100%',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scoreGoldSegment: {
+    position: 'relative',
   },
   scoreCard: {
     backgroundColor: '#fff',
@@ -323,6 +354,10 @@ const styles = StyleSheet.create({
     borderRightWidth: 4,
     borderLeftColor: '#e6c44d',
     borderRightColor: '#e6c44d',
+  },
+  /** Pulls the next card up 1px to remove the hairline gap between stacked rounded rects. */
+  strikeCardTightTop: {
+    marginTop: -1,
   },
   strikeCardRow: {
     flexDirection: 'row',

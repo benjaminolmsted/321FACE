@@ -12,7 +12,8 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { FlowPhase } from '../context/FlowContext';
-import { buildGameParams } from '../context/FlowContext';
+import { buildGameParams, useFlow } from '../context/FlowContext';
+import { getFaceEmoji } from '../utils/faceTiers';
 
 export type PlayMode = 'subtle' | 'balanced' | 'extreme';
 
@@ -22,6 +23,7 @@ const COUNTDOWN_321_MS = 1252;
 const COUNTDOWN_SNAP_MS = 626;
 const GAME_STYLE_KEY = '@321face_gameStyle';
 const PLAY_MODE_KEY = '@321face_playMode';
+const HIGH_SCORE_KEY = '@321face_highScore';
 
 type Props = {
   advance: (next: FlowPhase) => void;
@@ -39,10 +41,12 @@ const PLAY_BUTTON_ASPECT = 1122 / 297;
 const PLAY_BUTTON_WIDTH = Dimensions.get('window').width * 0.85 * BALANCED_EXTREME_SCALE;
 
 export function HomeScreen({ advance }: Props) {
+  const { homeDataVersion } = useFlow();
   const [rulesVisible, setRulesVisible] = useState(false);
   const [gameStyle, setGameStyle] = useState<GameStyle>('321face');
   const [playMode, setPlayMode] = useState<PlayMode>('balanced');
   const [playPressed, setPlayPressed] = useState(false);
+  const [highScore, setHighScore] = useState(0);
 
   useEffect(() => {
     AsyncStorage.getItem(GAME_STYLE_KEY).then((v) => {
@@ -52,6 +56,22 @@ export function HomeScreen({ advance }: Props) {
       if (v === 'subtle' || v === 'balanced' || v === 'extreme') setPlayMode(v);
     });
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    AsyncStorage.getItem(HIGH_SCORE_KEY).then((raw) => {
+      if (cancelled) return;
+      if (raw != null) {
+        const n = parseInt(raw, 10);
+        if (!Number.isNaN(n)) setHighScore(n);
+      } else {
+        setHighScore(0);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [homeDataVersion]);
 
   const setGameStyleAndPersist = (s: GameStyle) => {
     setGameStyle(s);
@@ -67,6 +87,8 @@ export function HomeScreen({ advance }: Props) {
     const cdMs = gameStyle === 'snap' ? COUNTDOWN_SNAP_MS : COUNTDOWN_321_MS;
     advance({ screen: 'game', gameParams: buildGameParams(playMode, cdMs, false, gameStyle) });
   };
+
+  const e = getFaceEmoji(highScore);
 
   return (
     <View style={styles.container}>
@@ -85,9 +107,33 @@ export function HomeScreen({ advance }: Props) {
         </TouchableOpacity>
 
         <View style={styles.header}>
-          <View style={styles.faceTextContainer}>
-            <Text style={[styles.faceText, styles.faceTextShadow]}>321FACE</Text>
-            <Text style={styles.faceText}>321FACE</Text>
+          <View style={styles.titleBlock}>
+            <View style={styles.highScoreTextContainer}>
+              <View style={styles.highScoreRow}>
+                <Text style={styles.highScoreEmoji}>
+                  {e}
+                  {' '}
+                </Text>
+                <View style={styles.highScoreSegment}>
+                  <Text style={[styles.highScoreText, styles.highScoreTextShadow]}>BEST: </Text>
+                  <Text style={styles.highScoreText}>BEST: </Text>
+                </View>
+                <View style={styles.highScoreSegment}>
+                  <Text style={[styles.highScoreText, styles.highScoreTextShadow]}>
+                    {String(highScore)}
+                  </Text>
+                  <Text style={styles.highScoreText}>{String(highScore)}</Text>
+                </View>
+                <Text style={styles.highScoreEmoji}>
+                  {' '}
+                  {e}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.faceTextContainer}>
+              <Text style={[styles.faceText, styles.faceTextShadow]}>321FACE</Text>
+              <Text style={styles.faceText}>321FACE</Text>
+            </View>
           </View>
         </View>
 
@@ -231,6 +277,39 @@ const styles = StyleSheet.create({
   header: {
     alignItems: 'center',
   },
+  titleBlock: {
+    width: '85%',
+    alignItems: 'center',
+  },
+  highScoreTextContainer: {
+    width: '100%',
+    alignItems: 'center',
+  },
+  highScoreRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  highScoreSegment: {
+    position: 'relative',
+  },
+  highScoreEmoji: {
+    fontSize: 18,
+    lineHeight: 22.5,
+  },
+  highScoreText: {
+    fontSize: 24,
+    color: '#e6c44d',
+    fontWeight: 'bold',
+    letterSpacing: 2,
+  },
+  highScoreTextShadow: {
+    position: 'absolute',
+    top: 1.5,
+    left: 1.5,
+    color: 'rgba(0,0,0,0.5)',
+  },
   countdownText: {
     fontSize: 32,
     color: '#a68a56',
@@ -239,7 +318,7 @@ const styles = StyleSheet.create({
   },
   faceTextContainer: {
     position: 'relative',
-    marginTop: 30,
+    marginTop: 10,
   },
   faceText: {
     fontSize: 72,

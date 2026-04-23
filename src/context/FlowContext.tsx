@@ -45,6 +45,8 @@ export function buildGameParams(
 type FlowContextValue = {
   flowPhase: FlowPhase;
   advance: (next: FlowPhase) => void;
+  /** Incremented on every navigation to `home` so home UI (e.g. high score) can refresh without relying on remount. */
+  homeDataVersion: number;
 };
 
 const FlowContext = createContext<FlowContextValue | null>(null);
@@ -55,11 +57,15 @@ const FlowContext = createContext<FlowContextValue | null>(null);
 
 export function FlowProvider({ children }: { children: React.ReactNode }) {
   const [flowPhase, setFlowPhase] = useState<FlowPhase>({ screen: 'home' });
+  const [homeDataVersion, setHomeDataVersion] = useState(0);
   const advance = useCallback((next: FlowPhase) => {
+    if (next.screen === 'home') {
+      setHomeDataVersion((v) => v + 1);
+    }
     setFlowPhase(next);
   }, []);
   return (
-    <FlowContext.Provider value={{ flowPhase, advance }}>
+    <FlowContext.Provider value={{ flowPhase, advance, homeDataVersion }}>
       {children}
     </FlowContext.Provider>
   );

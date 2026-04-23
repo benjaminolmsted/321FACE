@@ -12,6 +12,8 @@ type CameraContextValue = {
   cameraReady: boolean;
   permission: { granted: boolean; canAskAgain?: boolean } | null;
   requestPermission: () => Promise<{ granted: boolean; canAskAgain?: boolean } | null>;
+  /** Hide the native preview (e.g. full-screen opaque overlays like game over) to avoid visible cross-fade. */
+  setCameraPreviewSuppressed: (suppressed: boolean) => void;
 };
 
 const CameraContext = createContext<CameraContextValue | null>(null);
@@ -22,15 +24,23 @@ export function CameraProvider({ children }: { children: React.ReactNode }) {
   const { flowPhase } = useFlow();
   const [permission, requestPermission, getPermission] = useCameraPermissions();
   const [cameraReady, setCameraReady] = useState(false);
+  const [cameraPreviewSuppressed, setCameraPreviewSuppressed] = useState(false);
   const cameraRef = useRef<CameraView>(null);
+
+  const setCameraPreviewSuppressedStable = useCallback((suppressed: boolean) => {
+    setCameraPreviewSuppressed(suppressed);
+  }, []);
 
   const showCamera =
     CAMERA_SCREENS.includes(flowPhase.screen as (typeof CAMERA_SCREENS)[number]) &&
     (permission?.granted ?? false);
 
+  const renderCamera = showCamera && !cameraPreviewSuppressed;
+
   useEffect(() => {
     if (!showCamera) {
       setCameraReady(false);
+      setCameraPreviewSuppressed(false);
     }
   }, [showCamera]);
 
@@ -62,12 +72,13 @@ export function CameraProvider({ children }: { children: React.ReactNode }) {
     cameraReady,
     permission,
     requestPermission,
+    setCameraPreviewSuppressed: setCameraPreviewSuppressedStable,
   };
 
   return (
     <CameraContext.Provider value={value}>
       <View style={styles.container}>
-        {showCamera && (
+        {renderCamera && (
           <View style={styles.cameraLayer} pointerEvents="none">
             <CameraView
               ref={cameraRef}
