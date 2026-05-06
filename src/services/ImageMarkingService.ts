@@ -14,7 +14,7 @@ const STRIKE_LABELS: Record<StrikeDetailForMarking['type'], string> = {
   nfd: 'NFD',
 };
 
-const GOLD = '#e6c44d';
+const GOLD = '#ffdd63';
 const RED = '#c00';
 
 const SHADOW_STYLE = {

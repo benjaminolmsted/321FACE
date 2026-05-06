@@ -17,7 +17,7 @@ export function PermissionGateLoading() {
     <View style={styles.wrapper}>
       <Image source={require('../../assets/MASKS_ON_MARBLE.png')} style={styles.backgroundImage} resizeMode="cover" />
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#e6c44d" />
+        <ActivityIndicator size="large" color="#ffdd63" />
       </View>
     </View>
   );

@@ -511,7 +511,7 @@ export function GameScreen({ flowPhase, advance }: Props) {
         <View style={styles.overlay} pointerEvents="box-none">
           {baselineCapturing && (
             <View style={styles.baselineProcessingOverlay} pointerEvents="none">
-              <ActivityIndicator size="large" color="#e6c44d" />
+              <ActivityIndicator size="large" color="#ffdd63" />
             </View>
           )}
           {cameraReady && !showMarbleSplash && !baselineCapturing && !baselineError && (
@@ -614,7 +614,7 @@ export function GameScreen({ flowPhase, advance }: Props) {
                 sourceImageHeight={baselineSourceSize.height}
                 previewScaleMode="fill"
                 mirror={false}
-                stroke="#e6c44d"
+                stroke="#ffdd63"
                 strokeWidth={3}
               />
             </View>
@@ -728,8 +728,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderLeftWidth: 4,
     borderRightWidth: 4,
-    borderLeftColor: '#e6c44d',
-    borderRightColor: '#e6c44d',
+    borderLeftColor: '#ffdd63',
+    borderRightColor: '#ffdd63',
   },
   message: {
     color: '#6b5a32',
@@ -779,7 +779,7 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#e6c44d',
+    borderColor: '#ffdd63',
   },
   debugImageLabel: {
     color: '#6b5a32',
@@ -868,7 +868,7 @@ const styles = StyleSheet.create({
   },
   topBarText: {
     fontSize: 20,
-    color: '#e6c44d',
+    color: '#ffdd63',
     fontWeight: 'bold',
     letterSpacing: 2,
   },
@@ -903,7 +903,7 @@ const styles = StyleSheet.create({
   },
   countdownText: {
     fontSize: 96,
-    color: '#e6c44d',
+    color: '#ffdd63',
     fontWeight: 'bold',
     letterSpacing: 2,
   },

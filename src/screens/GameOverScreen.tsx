@@ -161,7 +161,7 @@ export function GameOverScreen({ strikes, allFrameEntries, onPlayAgain }: Props)
       />
       {(exportPhase === 'preparing' || exportPhase === 'creating') && (
         <View style={styles.spinnerOverlay}>
-          <ActivityIndicator size="large" color="#e6c44d" />
+          <ActivityIndicator size="large" color="#ffdd63" />
           <Text style={styles.spinnerLabel}>
             {exportPhase === 'preparing' ? 'Adding overlays...' : 'Creating video...'}
           </Text>
@@ -267,7 +267,7 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   spinnerLabel: {
-    color: '#e6c44d',
+    color: '#ffdd63',
     fontSize: 18,
     marginTop: 16,
     fontWeight: '600',
@@ -319,7 +319,7 @@ const styles = StyleSheet.create({
   },
   highScoreText: {
     fontSize: 16,
-    color: '#e6c44d',
+    color: '#ffdd63',
     fontWeight: '900',
     letterSpacing: 2,
   },
@@ -334,7 +334,7 @@ const styles = StyleSheet.create({
   },
   scoreText: {
     fontSize: 20,
-    color: '#e6c44d',
+    color: '#ffdd63',
     fontWeight: 'bold',
     letterSpacing: 1,
   },
@@ -352,8 +352,8 @@ const styles = StyleSheet.create({
     paddingRight: 16,
     borderLeftWidth: 4,
     borderRightWidth: 4,
-    borderLeftColor: '#e6c44d',
-    borderRightColor: '#e6c44d',
+    borderLeftColor: '#ffdd63',
+    borderRightColor: '#ffdd63',
   },
   /** Pulls the next card up 1px to remove the hairline gap between stacked rounded rects. */
   strikeCardTightTop: {

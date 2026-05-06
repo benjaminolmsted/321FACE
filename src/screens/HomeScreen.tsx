@@ -300,7 +300,7 @@ const styles = StyleSheet.create({
   },
   highScoreText: {
     fontSize: 24,
-    color: '#e6c44d',
+    color: '#ffdd63',
     fontWeight: 'bold',
     letterSpacing: 2,
   },
@@ -322,7 +322,7 @@ const styles = StyleSheet.create({
   },
   faceText: {
     fontSize: 72,
-    color: '#e6c44d',
+    color: '#ffdd63',
     fontWeight: 'bold',
     letterSpacing: 2,
   },

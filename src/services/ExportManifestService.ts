@@ -21,7 +21,7 @@ const STRIKE_LABELS: Record<string, string> = {
   zoom: 'ZOOM',
   nfd: 'NFD',
 };
-const GOLD = '#e6c44d';
+const GOLD = '#ffdd63';
 const RED = '#c00';
 const SHADOW_STYLE = { dx: 2, dy: 2, radius: 5, color: '#000000' };
 const OVERLAY_FONT_SIZE = 360;

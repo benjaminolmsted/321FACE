@@ -60,7 +60,25 @@ Output:
 
 ## 5. Version bumps (store uploads)
 
-Before a new Play upload, bump `version` / Android `versionCode` as your release process requires (e.g. `app.json` for Expo, then prebuild or sync `android/app/build.gradle` if you edit native files directly).
+Before a new Play upload:
+
+1. In **`app.json`** under `expo`:
+   - Bump **`version`** (user-visible string, e.g. `1.0.1`).
+   - Bump **`android.versionCode`** (integer; must increase for every Play upload, e.g. `2`, then `3`, …).
+2. Sync native Gradle from config (recommended):
+
+   ```bash
+   npx expo prebuild --platform android
+   ```
+
+   Confirm `android/app/build.gradle` shows matching `versionName` / `versionCode` in `defaultConfig`.
+3. Build the AAB:
+
+   ```bash
+   npm run android:bundle
+   ```
+
+**Source of truth:** `expo.version` and `expo.android.versionCode` live in **`app.json`**; always prebuild before bundling so `android/app/build.gradle` matches.
 
 ---
 
